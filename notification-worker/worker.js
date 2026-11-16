@@ -170,7 +170,7 @@ const generateContractPDF = async (contract, rental, ownerSigBuffer, renterSigBu
      .text('HỢP ĐỒNG THUÊ TÀI SẢN NỘI BỘ', 50, doc.y, { align: 'center', width: PAGE_W });
   doc.moveDown(0.35);
   doc.fontSize(8.5).fillColor('#64748b').font('Arial')
-     .text(`Số hợp đồng: ${contract._id || 'Chưa cấp mã'}`, { align: 'center', width: PAGE_W });
+     .text(`Số hợp đồng: ${rental?.code || contract._id || 'Chưa cấp mã'}`, { align: 'center', width: PAGE_W });
   doc.moveDown(0.6);
 
   // Thin rule

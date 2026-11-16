@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const RentalSchema = new mongoose.Schema({
+  code: { type: String, trim: true, uppercase: true },
   itemId: { 
     type: mongoose.Schema.Types.ObjectId, 
     required: true, 

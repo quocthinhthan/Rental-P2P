@@ -144,7 +144,7 @@ function ContractModal({ isOpen, contract, rental, onClose }) {
           {/* Tiêu đề Quốc hiệu & Tên hợp đồng */}
           <div className="contract-header-center">
             <h2 className="contract-main-title">HỢP ĐỒNG THUÊ TÀI SẢN NỘI BỘ</h2>
-            <p className="contract-code-id">Số hợp đồng: {contract._id || 'Chưa cấp mã'}</p>
+            <p className="contract-code-id">Số hợp đồng: {rental?.code || contract._id || 'Chưa cấp mã'}</p>
           </div>
 
           <p style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '20px' }}>
