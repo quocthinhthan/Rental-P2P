@@ -76,14 +76,6 @@ exports.updateProfile = async (req, res) => {
     };
   }
 
-  if (req.body.idCardNumber && user.ekycStatus !== 'verified') {
-    user.idCardNumber = req.body.idCardNumber;
-    user.ekycStatus = 'verified';
-  }
-  if (Array.isArray(req.body.idCardImages) && req.body.idCardImages.length > 0 && user.ekycStatus !== 'verified') {
-    user.idCardImages = req.body.idCardImages;
-  }
-  
   // Nếu đổi pass, phải thêm logic so sánh pass cũ. Ở đây tạm update thông tin cơ bản.
 
   const updatedUser = await user.save();

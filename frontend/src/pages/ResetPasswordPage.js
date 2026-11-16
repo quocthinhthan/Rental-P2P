@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import Swal from 'sweetalert2';
@@ -11,6 +11,16 @@ function ResetPasswordPage() {
   const { register, handleSubmit, watch, formState: { errors } } = useForm();
   const [apiError, setApiError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   const newPassword = watch('password');
 
@@ -43,7 +53,7 @@ function ResetPasswordPage() {
   };
 
   return (
-    <div className="auth-page-wrapper">
+    <div className="auth-page-wrapper" ref={containerRef}>
       <div className="auth-form-col">
         <div className="auth-bg-shape shape-1"></div>
         <div className="auth-bg-shape shape-2"></div>

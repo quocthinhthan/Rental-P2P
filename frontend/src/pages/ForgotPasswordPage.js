@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import apiService from '../services/api';
@@ -9,6 +9,16 @@ function ForgotPasswordPage() {
   const [apiError, setApiError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   const onSubmit = async (data) => {
     setLoading(true);
@@ -26,7 +36,7 @@ function ForgotPasswordPage() {
   };
 
   return (
-    <div className="auth-page-wrapper">
+    <div className="auth-page-wrapper" ref={containerRef}>
       <div className="auth-form-col">
         <div className="auth-bg-shape shape-1"></div>
         <div className="auth-bg-shape shape-2"></div>
