@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,16 @@ function LoginPage() {
   const navigate = useNavigate();
   const [apiError, setApiError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   const onSubmit = async (data) => {
     setLoading(true);
@@ -35,7 +45,7 @@ function LoginPage() {
   };
 
   return (
-    <div className="auth-page-wrapper">
+    <div className="auth-page-wrapper" ref={containerRef}>
       {/* Cột Form Đăng Nhập */}
       <div className="auth-form-col">
         <div className="auth-bg-shape shape-1"></div>

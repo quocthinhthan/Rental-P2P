@@ -58,7 +58,7 @@ Mounted backend API groups in `server.js`:
 - `frontend/src/services/chatSocket.js`: rental chat Socket.IO client. It reads the same stored token as the API client.
 - `frontend/src/contexts/AuthContext.js`: auth state, token storage, `/auth/me` bootstrap, login/logout/updateUser helpers.
 - `frontend/src/contexts/LoadingContext.js`: global spinner state used by the axios interceptor.
-- `frontend/src/pages/`: page-level screens for home/shop/item detail/auth/account/rentals/admin/disputes/VNPay return.
+- `frontend/src/pages/`: page-level screens for home/shop/item detail/auth/account/rentals/admin (dashboard, items, disputes, users, item reports)/VNPay return.
 - `frontend/src/components/`: reusable UI grouped by domain:
   - `Layout`: header/footer.
   - `Auth`: protected route.
@@ -126,7 +126,7 @@ Rentals can be cancelled before handover. If escrow was already paid, cancellati
 - Admin report adjustments: Once a report is resolved, the original owner penalties/actions (e.g. warnings, trust score deductions) are preserved to keep penalty history consistent. Any subsequent adjustments from the admin reports page only toggle the product's active status (AVAILABLE vs DELISTED) by calling `updateAdminItemStatus` instead of modifying the report action.
 - Favorites (wishlist): `User.favorites` is an array of Item ObjectIds, capped at 100, managed via `$addToSet`/`$pull`. `getItemDetailView` returns `isFavorited: Boolean` when the caller is authenticated (decoded from Bearer token without requiring `protect` middleware on the route, so unauthenticated calls still work).
 - Bank account: `User.bankAccount` subdocument stores `{ bankName, accountNumber, accountHolder }` for automated deposit refund. Enforced **Frontend-only**: renter must fill bank details before booking (checked in `ItemDetailPage.js`); owner must fill bank details before creating/updating an item listing (checked in `PostItemPage.js`). No backend validation.
-- Disputes can only be created while the rental is in `confirmed` status (before handover is approved). Once handover is approved (`in_progress` or `completed`), the dispute button is hidden on the frontend. The backend still enforces its own rules independently.
+- Disputes can be created when the rental is in `confirmed` or `in_progress` status (from when the product is handed over up until before the return is approved/completed). Once it is `completed`, the dispute button is hidden on the frontend.
 - After a rental ends (`cancelled`, `rejected`, `completed`) the renter sees a **"Thuê lại sản phẩm"** button that navigates directly to the item detail page.
 
 
@@ -145,6 +145,10 @@ Verify the exact implementation before using or modifying these endpoints:
 - `POST /api/items/{id}/report` (Submit product violation report)
 - `GET /api/admin/item-reports` (Admin get violation reports list)
 - `PATCH /api/admin/item-reports/{reportId}/resolve` (Admin resolve violation report)
+- `GET /api/admin/users` (Admin get paginated, searchable, filtered users list)
+- `GET /api/admin/users/{id}` (Admin get deep user statistics, profiles, and logs)
+- `PATCH /api/admin/users/{id}/status` (Admin ban or suspend users with customizable reasons)
+- `GET /api/admin/audit-logs` (Admin get general system-wide action audit logs)
 - `POST /api/items/{id}/blocked-dates` — owner only; body: `{ startDate, endDate, reason? }`
 - `DELETE /api/items/{id}/blocked-dates/{blockId}` — owner only
 - `GET /api/users/me/favorites` — authenticated; returns array of item summaries
