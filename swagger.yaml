@@ -198,8 +198,10 @@ paths:
                 email:
                   type: string
       responses:
-        '200':
-          description: Email đã được gửi
+        '202':
+          description: Đã tiếp nhận yêu cầu gửi email đặt lại mật khẩu
+        '503':
+          description: Tạm thời chưa thể đưa yêu cầu gửi email vào hàng đợi
   /auth/reset-password/{token}:
     put:
       tags:
