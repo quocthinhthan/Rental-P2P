@@ -17,17 +17,6 @@ const DEFAULT_ITEM_LOCATION = {
   lng: 106.6999,
 };
 
-const TILE_SOURCES = [
-  {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  },
-  {
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  },
-];
-
 const itemLocationIcon = L.divIcon({
   className: 'post-item-location-marker',
   html: '<span class="post-item-location-marker-inner"><i class="fas fa-map-marker-alt"></i></span>',
@@ -106,7 +95,8 @@ function PostItemPage() {
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState('');
-  const [tileSourceIndex, setTileSourceIndex] = useState(0);
+  const [tilesError, setTilesError] = useState(false);
+  const [tileRetry, setTileRetry] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
 
   const {
@@ -129,7 +119,6 @@ function PostItemPage() {
   const watchDescription = watch('description');
 
   const mapCenter = selectedLocation || DEFAULT_ITEM_LOCATION;
-  const tileSource = TILE_SOURCES[tileSourceIndex];
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -736,15 +725,10 @@ function PostItemPage() {
                       className="post-item-map"
                     >
                       <TileLayer
-                        attribution={tileSource.attribution}
-                        url={tileSource.url}
-                        eventHandlers={{
-                          tileerror: () => {
-                            setTileSourceIndex((currentIndex) => (
-                              currentIndex < TILE_SOURCES.length - 1 ? currentIndex + 1 : currentIndex
-                            ));
-                          },
-                        }}
+                        key={tileRetry}
+                        attribution={'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+                        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        eventHandlers={{ tileerror: () => setTilesError(true) }}
                       />
                       <LocationMapEvents onPick={setPickedLocation} />
                       <LocationMapRecenter center={mapCenter} />
@@ -756,6 +740,18 @@ function PostItemPage() {
                       )}
                     </MapContainer>
                   </div>
+
+                  {tilesError && (
+                    <div className="alert alert-warning py-2 px-3 small mt-3 mb-0" role="alert">
+                      Một phần bản đồ chưa tải được. Vui lòng kiểm tra kết nối mạng.{' '}
+                      <button type="button" className="btn btn-link btn-sm p-0" onClick={() => {
+                        setTilesError(false);
+                        setTileRetry((current) => current + 1);
+                      }}>
+                        Thử tải lại
+                      </button>
+                    </div>
+                  )}
 
                   <div className="d-grid d-md-flex gap-2 mt-3">
                     <button

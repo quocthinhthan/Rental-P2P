@@ -139,7 +139,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       const SizedBox(height: 8),
                       Text(
                         _sent
-                            ? 'Link đặt lại mật khẩu đã được gửi đến\n${_emailCtrl.text.trim()}'
+                            ? 'Đã tiếp nhận yêu cầu đặt lại mật khẩu cho\n${_emailCtrl.text.trim()}'
                             : 'Nhập email tài khoản của bạn.\nChúng tôi sẽ gửi link đặt lại mật khẩu.',
                         style:
                             Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -253,7 +253,7 @@ class _SuccessContent extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Email đã được gửi thành công! Vui lòng kiểm tra hộp thư đến.',
+                  'Vui lòng kiểm tra hộp thư đến sau ít phút.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.green,
                         fontWeight: FontWeight.w600,

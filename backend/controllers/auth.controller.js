@@ -211,6 +211,8 @@ exports.verifyEKYC = async (req, res) => {
 
 // [PUBLIC] POST /api/auth/forgot-password
 exports.forgotPassword = async (req, res) => {
+  const requestId = crypto.randomUUID();
+
   try {
     const user = await User.findOne({ email: req.body.email });
     if (!user) {
@@ -222,14 +224,21 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
     await user.save();
     
-    publishToQueue({
+    const queued = publishToQueue({
       task: 'forgot_password',
+      requestId,
       email: user.email,
       fullName: user.fullName,
-      resetToken: resetToken 
+      resetToken
     });
 
-    res.status(200).json({ message: 'Email khôi phục mật khẩu đã được gửi!' });
+    if (!queued) {
+      console.error('[BACKEND] Could not queue password reset email', { requestId });
+      return res.status(503).json({ message: 'Hiện chưa thể gửi email đặt lại mật khẩu. Vui lòng thử lại sau.' });
+    }
+
+    console.info('[BACKEND] Password reset email submitted to RabbitMQ', { requestId });
+    res.status(202).json({ message: 'Đã tiếp nhận yêu cầu đặt lại mật khẩu. Vui lòng kiểm tra email sau ít phút.' });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }

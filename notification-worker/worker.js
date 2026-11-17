@@ -514,7 +514,7 @@ const sendNotification = async (data) => {
     }
 
     if (data.task === 'forgot_password') {
-      console.log(`[WORKER] Processing: forgot password for ${data.email}`);
+      console.info('[WORKER] Sending password reset email', { requestId: data.requestId });
       const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${data.resetToken}`;
 
       const mailOptions = {
@@ -531,10 +531,9 @@ const sendNotification = async (data) => {
         </div>`
       };
 
-      await transporter.sendMail(mailOptions);
-      console.log(`[WORKER] Password reset email sent to ${data.email}`);
-      
-      return; 
+      const { messageId } = await transporter.sendMail(mailOptions);
+      console.info('[WORKER] SMTP accepted password reset email', { requestId: data.requestId, messageId });
+      return;
     }
 
     const rental = await Rental.findById(data.rentalId)
@@ -654,7 +653,9 @@ const sendNotification = async (data) => {
       console.log(`[WORKER] Email sent to renter ${renterId.email}`);
     }
   } catch (error) {
-    console.error('[WORKER] Email failed:', error.message);
+    if (data.task !== 'forgot_password') {
+      console.error('[WORKER] Email failed:', error.message);
+    }
     throw error;
   }
 };
@@ -670,22 +671,31 @@ const startWorker = async () => {
     await channel.assertQueue(QUEUE_NAME, { durable: true });
     channel.prefetch(1);
 
-    console.log(`[WORKER] Waiting for messages in: "${QUEUE_NAME}"`);
-
-    channel.consume(QUEUE_NAME, async (msg) => {
+    await channel.consume(QUEUE_NAME, async (msg) => {
       if (!msg) return;
 
       console.log('[WORKER] <<< New message received');
 
+      let data;
       try {
-        const data = JSON.parse(msg.content.toString());
+        data = JSON.parse(msg.content.toString());
         await sendNotification(data);
         channel.ack(msg);
       } catch (err) {
-        console.error('[WORKER] Message failed, requeueing...', err.message);
+        if (data?.task === 'forgot_password') {
+          console.error('[WORKER] Password reset email failed, retrying in 3s', {
+            requestId: data.requestId,
+            code: err.code || err.name,
+            smtpStatus: err.responseCode,
+            command: err.command
+          });
+        } else {
+          console.error('[WORKER] Message failed, requeueing...', err.message);
+        }
         setTimeout(() => channel.nack(msg, false, true), 3000);
       }
     });
+    console.log(`[WORKER] Waiting for messages in: "${QUEUE_NAME}"`);
 
     connection.on("close", () => {
       console.error("[WORKER] RabbitMQ closed. Reconnecting...");

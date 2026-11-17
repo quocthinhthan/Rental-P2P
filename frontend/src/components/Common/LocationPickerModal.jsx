@@ -13,16 +13,6 @@ const DEFAULT_LOCATION = {
 
 const DEFAULT_RADIUS = '';
 const RADIUS_OPTIONS = ['1', '3', '5', '10', '20', '50'];
-const TILE_SOURCES = [
-  {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  },
-  {
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  },
-];
 
 const itemMapIcon = L.divIcon({
   className: 'location-picker-item-marker',
@@ -98,7 +88,8 @@ function LocationPickerModal({
   const [mapItemsError, setMapItemsError] = useState('');
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState('');
-  const [tileSourceIndex, setTileSourceIndex] = useState(0);
+  const [tilesError, setTilesError] = useState(false);
+  const [tileRetry, setTileRetry] = useState(0);
 
   useEffect(() => {
     if (!show) return;
@@ -108,7 +99,7 @@ function LocationPickerModal({
     setMapItemsError('');
     setGeoError('');
     setGeoLoading(false);
-    setTileSourceIndex(0);
+    setTilesError(false);
 
     if (initialLocation && !preferCurrentLocation) {
       setSelectedLocation(initialLocation);
@@ -215,7 +206,6 @@ function LocationPickerModal({
     )),
     [mapItems]
   );
-  const tileSource = TILE_SOURCES[tileSourceIndex];
 
   const handleUseCurrentLocation = () => {
     setGeoError('');
@@ -362,15 +352,10 @@ function LocationPickerModal({
                   className="location-picker-map"
                 >
                   <TileLayer
-                    attribution={tileSource.attribution}
-                    url={tileSource.url}
-                    eventHandlers={{
-                      tileerror: () => {
-                        setTileSourceIndex((currentIndex) => (
-                          currentIndex < TILE_SOURCES.length - 1 ? currentIndex + 1 : currentIndex
-                        ));
-                      },
-                    }}
+                    key={tileRetry}
+                    attribution={'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+                    url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    eventHandlers={{ tileerror: () => setTilesError(true) }}
                   />
                   {selectedLocation && selectedRadius && (
                     <Circle
@@ -440,6 +425,17 @@ function LocationPickerModal({
                   )}
                 </div>
               </div>
+              {tilesError && (
+                <div className="alert alert-warning py-2 px-3 small mt-3 mb-0" role="alert">
+                  Một phần bản đồ chưa tải được. Vui lòng kiểm tra kết nối mạng.{' '}
+                  <button type="button" className="btn btn-link btn-sm p-0" onClick={() => {
+                    setTilesError(false);
+                    setTileRetry((current) => current + 1);
+                  }}>
+                    Thử tải lại
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="modal-footer border-0 pt-0">

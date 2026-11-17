@@ -177,14 +177,10 @@ const startServer = async () => {
     // 1. Kết nối đến DB và chờ hoàn tất
     await connectDB();
 
-    // 2. Kết nối đến RabbitMQ nhưng không chặn server khởi động nếu không có
-    try {
-      await connectRabbitMQ();
-    } catch (err) {
-      console.warn('[BACKEND] RabbitMQ not available at startup, continuing without it.');
-    }
+    // RabbitMQ phục vụ thông báo; kết nối lại ở nền nếu broker chưa sẵn sàng.
+    connectRabbitMQ();
 
-    // 3. SAU KHI tất cả kết nối đã sẵn sàng, MỚI khởi động Express server
+    // 3. Khởi động Express sau khi MongoDB đã sẵn sàng.
     const PORT = process.env.PORT || 5000;
     if (!process.env.JWT_SECRET) {
       throw new Error('FATAL ERROR: JWT_SECRET is not defined.');
