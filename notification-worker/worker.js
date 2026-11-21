@@ -9,6 +9,16 @@ const nodemailer = require('nodemailer');
 const QUEUE_NAME = 'notification_queue';
 const RABBITMQ_URI = process.env.RABBITMQ_URI || 'amqp://rabbitmq';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/p2p_rental';
+const isWindows = process.platform === 'win32';
+const pdfFontDirectory = isWindows
+  ? path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts')
+  : '/usr/share/fonts/truetype/liberation';
+const pdfRegularFont = process.env.PDF_FONT_REGULAR || path.join(
+  pdfFontDirectory, isWindows ? 'Arial.ttf' : 'LiberationSans-Regular.ttf'
+);
+const pdfBoldFont = process.env.PDF_FONT_BOLD || path.join(
+  pdfFontDirectory, isWindows ? 'Arialbd.ttf' : 'LiberationSans-Bold.ttf'
+);
 
 let User, Rental, Item, Contract;
 
@@ -75,6 +85,10 @@ const sanitizeUrl = (url) => {
 const generateContractPDF = async (contract, rental, ownerSigBuffer, renterSigBuffer, includeAnnex) => {
   const PDFDocument = require('pdfkit');
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
+  doc.registerFont('Arial', pdfRegularFont);
+  doc.registerFont('Arial-Bold', pdfBoldFont);
+  doc.font('Arial');
+
   let buffers = [];
   doc.on('data', buffers.push.bind(buffers));
 
@@ -82,15 +96,6 @@ const generateContractPDF = async (contract, rental, ownerSigBuffer, renterSigBu
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
   });
-
-  // ── Font setup ──────────────────────────────────────────────────────────
-  try {
-    doc.registerFont('Arial', 'C:\\Windows\\Fonts\\Arial.ttf');
-    doc.registerFont('Arial-Bold', 'C:\\Windows\\Fonts\\Arialbd.ttf');
-    doc.font('Arial');
-  } catch (fontErr) {
-    console.warn('[WORKER] Arial not found, falling back to Helvetica:', fontErr.message);
-  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   const formatCurrency = (val) => `${Number(val || 0).toLocaleString('vi-VN')}đ`;
@@ -172,6 +177,7 @@ const generateContractPDF = async (contract, rental, ownerSigBuffer, renterSigBu
   doc.fontSize(8.5).fillColor('#64748b').font('Arial')
      .text(`Số hợp đồng: ${rental?.code || contract._id || 'Chưa cấp mã'}`, { align: 'center', width: PAGE_W });
   doc.moveDown(0.6);
+  doc.y = Math.max(doc.y, sealY + 2 * sealR + 6);
 
   // Thin rule
   doc.moveTo(50, doc.y).lineTo(50 + PAGE_W, doc.y)
@@ -316,7 +322,7 @@ const generateContractPDF = async (contract, rental, ownerSigBuffer, renterSigBu
     doc.text(`Họ tên: ${info?.fullName || '-'}`, xOff + 6, sY, { width: sigHalfW - 12 }); sY += 12;
     doc.text(`Ký lúc: ${fmtDateTime(signedAt)}`, xOff + 6, sY, { width: sigHalfW - 12 }); sY += 12;
     doc.fillColor('#166534').font('Arial-Bold').fontSize(6.5)
-       .text('✓ ĐÃ XÁC NHẬN CHỮ KÝ ĐIỆN TỬ TRÊN HỆ THỐNG', xOff + 6, sY, { width: sigHalfW - 12 });
+       .text('ĐÃ XÁC NHẬN CHỮ KÝ ĐIỆN TỬ TRÊN HỆ THỐNG', xOff + 6, sY, { width: sigHalfW - 12 });
     sY += 14;
 
     if (sigBuf) {

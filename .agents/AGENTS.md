@@ -34,7 +34,7 @@ Backend and frontend are the main working areas. Keep `mobile/` out of searches 
 - `backend/middleware/auth.middleware.js`: shared auth/permission middleware: `protect`, `admin`, `checkVerified`.
 - `backend/services/`: shared domain logic such as chat authorization and trust score recalculation.
 - `backend/config/`: MongoDB, RabbitMQ, and Cloudinary configuration.
-- `backend/scripts/`: migration/backfill/maintenance scripts. Most require a valid `MONGO_URI`.
+- `backend/scripts/`: migration, backfill, seed, and media import scripts. Most require a valid `MONGO_URI`.
 - `backend/constants/` and `backend/utils/`: reusable messages and helpers.
 
 Mounted backend API groups in `server.js`:
@@ -74,10 +74,13 @@ Mounted backend API groups in `server.js`:
 
 ### Local Scripts
 
-- Usual local startup: from the repository root, run `.\start-all.ps1` to start the whole project.
+- Usual local startup on Windows: from the repository root, run `.\start-all.ps1` to launch the backend, frontend, and notification worker. It checks the RabbitMQ Windows service and starts the local MongoDB service only when `MONGO_URI` points to a loopback address. Docker files describe the old setup.
+- Backend and worker load the root `.env`. The backend needs MongoDB and `JWT_SECRET` to start. It connects to RabbitMQ in the background only when `RABBITMQ_ENABLED=true` and retries if the broker is unavailable. Email flows require a working broker, worker, and SMTP configuration.
 - Backend only: from `backend/`, use `npm run dev` for nodemon or `npm start` for `node server.js`.
 - Frontend only: from `frontend/`, use `npm start`; the custom script sets `PORT` from `FRONTEND_PORT` or defaults to `3000`.
 - Backend test script is still the default failing placeholder. Frontend uses `react-scripts test`.
+- Demo data, from `backend/`: `node scripts/seed-items.js` verifies both existing owners, creates missing items by owner and exact name, and leaves images empty. A renamed product may no longer match the original seed name.
+- Demo images, from `backend/`: `node scripts/import-seed-item-images.js --prepare` creates product folders under `Downloads/Rental-P2P-Images` by default. Run without flags to preview the matches. `--apply` uploads local photos to Cloudinary and saves their URLs only for seed items without images. Pass a directory path before the flag to use a different folder.
 
 ## Working Principles
 
@@ -96,7 +99,7 @@ Mounted backend API groups in `server.js`:
 The rental lifecycle is:
 
 1. Renter creates a rental request.
-2. Renter pays a deposit through the mock VNPay flow (SweetAlert confirmation popup shown before redirect).
+2. Renter pays the rental fee and deposit through VNPay. The backend builds the signed payment URL from `VNP_*` configuration and verifies the signature on the return before updating `paymentStatus` and the rental status.
 3. Owner confirms the rental.
 4. Backend automatically creates an electronic contract.
 5. Renter and owner both sign the contract. When fully signed, the `notification-worker` generates a PDF (excluding the handover annex) and emails it to both parties.
@@ -106,7 +109,7 @@ The rental lifecycle is:
 9. The other party reviews and confirms with `PATCH /api/rentals/{id}/approve-return` — status advances to `completed`.
 10. Upon successful completion confirmation, the `notification-worker` generates and emails both parties the finalized contract PDF featuring the completed **Phụ lục Bàn giao & Hoàn trả** (Handover & Return Annex).
 
-Rentals can be cancelled before handover. If escrow was already paid, cancellation/rejection marks `paymentStatus` as `refunded`; after pickup, users should use the dispute flow instead of cancellation.
+Rentals can be cancelled before pickup proof is recorded, subject to role and status checks. Cancellation or rejection of an escrowed rental sets `paymentStatus` to `refunded` in MongoDB. This status records the application outcome. The current backend has no VNPay refund or bank transfer call for these flows.
 
 
 ## Business Rules
@@ -116,24 +119,31 @@ Rentals can be cancelled before handover. If escrow was already paid, cancellati
 - `approve-pickup` and `approve-return` can optionally accept edited report fields (`condition`, `accessories`, `notes`, `damages`, `pickupImages`/`returnImages`) to let the reviewer override the original entry before confirming. Advancing rental status only happens on these approve calls.
 - Completion requires `returnImages`.
 - Booking availability is date-range based. `Item.status = rented` is not a global lock for all future rentals; new rental/payment/confirmation checks must reject only overlapping active bookings.
-- Blocking rental statuses for booking overlap are `pending_confirmation`, `confirmed`, `in_progress`, and `disputed`.
-- Item `blockedDates` are also excluded from search results when date-range filters are applied. They do NOT affect the rental status machine — they only block new bookings.
-- Owner can only add a `blockedDate` that does not overlap with any existing active rental on that item.
+- Rental creation, payment, and confirmation check for overlapping `pending_confirmation`, `confirmed`, `in_progress`, or `disputed` rentals through `findOverlappingBooking` in `backend/controllers/rentals.controller.js`.
+- Owner `blockedDates` are stored on the item and are separate from rental status. Search and the item detail calendar use them.
+- When the owner adds a blocked date, `items.controller.js` checks for overlapping active rentals and existing owner blocks. Its rental status set currently differs from the booking check below.
 - Backend authorization rules decide which user can perform each action.
 - Frontend should display and submit data according to backend state, not local assumptions.
 - Rental statuses must be verified from backend implementation before conditional UI or API changes.
 - Item violation reporting: A user can only report a specific item once. Item reports require at least a 10-character description and support up to 3 evidence images (each <= 5MB, format: .jpg, .jpeg, .png, .webp, .gif).
 - Admin report adjustments: Once a report is resolved, the original owner penalties/actions (e.g. warnings, trust score deductions) are preserved to keep penalty history consistent. Any subsequent adjustments from the admin reports page only toggle the product's active status (AVAILABLE vs DELISTED) by calling `updateAdminItemStatus` instead of modifying the report action.
 - Favorites (wishlist): `User.favorites` is an array of Item ObjectIds, capped at 100, managed via `$addToSet`/`$pull`. `getItemDetailView` returns `isFavorited: Boolean` when the caller is authenticated (decoded from Bearer token without requiring `protect` middleware on the route, so unauthenticated calls still work).
-- Bank account: `User.bankAccount` subdocument stores `{ bankName, accountNumber, accountHolder }` for automated deposit refund. Enforced **Frontend-only**: renter must fill bank details before booking (checked in `ItemDetailPage.js`); owner must fill bank details before creating/updating an item listing (checked in `PostItemPage.js`). No backend validation.
-- Disputes can be created when the rental is in `confirmed` or `in_progress` status (from when the product is handed over up until before the return is approved/completed). Once it is `completed`, the dispute button is hidden on the frontend.
+- Bank account: `User.bankAccount` stores `{ bankName, accountNumber, accountHolder }`. The web frontend requires all three fields before booking (`ItemDetailPage.js`) or creating/editing a listing (`PostItemPage.js`). The corresponding backend handlers do not enforce that requirement or use these fields to transfer funds.
+- Disputes start with a 48-hour mediation window before parties can escalate. The backend records the previous rental and item statuses so withdrawal or resolution with no winner can restore them.
 - After a rental ends (`cancelled`, `rejected`, `completed`) the renter sees a **"Thuê lại sản phẩm"** button that navigates directly to the item detail page.
 
+
+## Current differences between checks
+
+- **Dispute eligibility:** `backend/controllers/disputes.controller.js` accepts disputes from rental parties for `confirmed` (including before pickup), `in_progress`, and `completed` for up to seven days from `updatedAt`, with `endDate` as a fallback. `frontend/src/pages/RentalDetailPage.js` exposes the action only for `confirmed` and `in_progress`, and hides it when there is a dispute record or the current user has already reviewed the rental. Keep this distinction when describing or changing the flow.
+- **Calendar availability:** Listing date filters and owner blocked-date creation in `backend/controllers/items.controller.js`, and `bookedDates` in `backend/controllers/views.controller.js`, currently check `pending_confirmation`, `confirmed`, and `in_progress`. Rental booking checks also include `disputed`. An item can therefore appear free in search or on its calendar but fail the booking overlap check. Conversely, search and the web calendar respect owner `blockedDates`, while the current rental booking handlers check overlapping rentals without enforcing those owner blocks.
 
 ## Important APIs
 
 Verify the exact implementation before using or modifying these endpoints:
 
+- `POST /api/auth/forgot-password` — `202` when the request is queued for the worker, `503` when it cannot be queued, and `404` when the email has no account. `202` indicates submission to RabbitMQ. The worker sends the email separately, and both processes log a shared `requestId` for troubleshooting. `PUT /api/auth/reset-password/{token}` checks the hashed token, which expires after 10 minutes.
+- `GET /api/items` — the location picker requests `lat`, `lng`, `radius`, and `includeMapLocation=true`; nearby listings can include `mapLocation: { lat, lng }`. MongoDB stores a GeoJSON Point with `coordinates: [lng, lat]`. Both web map pickers use Leaflet with standard OpenStreetMap tiles and offer a retry on tile errors.
 - `PATCH /api/rentals/{id}/confirm`
 - `PATCH /api/rentals/{id}/cancel`
 - `POST /api/upload`
@@ -189,12 +199,11 @@ When touching these APIs from the frontend:
 ## Description Formatting & Security
 
 - **WYSIWYG Formatting:** Item descriptions use the premium **CKEditor 5** (Classic Build) editor inside `PostItemPage.js` to enable rich and professional formatting, coupled with a Live Preview rendering system to verify layouts before posting.
-- **XSS Sanitization:** Formatted descriptions are safely rendered using the zero-dependency `sanitizeDescription` utility in `frontend/src/utils/sanitize.js`. This function escapes all input HTML tags for absolute security, and then restores safe formatting tags (like `<b>`, `<strong>`, `<i>`, `<em>`, `<h2>`, `<h3>`, `<h4>`, `<br>`, `<p>`, `<u>`, `<ul>`, `<ol>`, and `<li>`), which are beautifully structured with proper margin and bullet styles in `ItemDetailPage.css`.
+- **Description rendering:** `frontend/src/utils/sanitize.js` escapes input HTML and restores selected formatting tags, links, and images. Check that helper and its rendering call sites before changing which tags, URLs, or attributes the frontend accepts.
 - **Review Breakdown Dashboards:** The reviews tab on details page displays dynamic visual dashboards that compute 1-to-5 star breakdowns based on the user's transaction history reviews. Ensure review cards use standard typography tokens for responsive and beautiful mobile and desktop rendering.
 - **Smart Availability & Busy Schedule:** Product details page (`ItemDetailPage.js`) dynamically computes Today's availability status based on local timezone-safe `item.bookedDates` normalization (AVAILABLE "Còn trống", AVAILABLE_TODAY "Còn trống hôm nay", or RENTED "Đang được thuê"). It also displays a premium "Lịch bận sắp tới" (Upcoming Schedule) list widget for both renters (first 3 entries with '+ more' label) and owners (full entries list) to aid rental planning.
 - **Bidirectional Handover Flow:** `HandoverModal.jsx` serves both the recorder (fills form + images) and the reviewer (sees pre-populated read-only data, can toggle edit mode to correct details/swap images, then confirm). Both parties share the same action button label (`Xác nhận giao đồ` / `Hoàn tất thuê / Trả đồ`). The modal dispatches `approvePickup`/`approveReturn` with optional override payload when reviewer edits.
 - **PDF Contract Email:** `notification-worker` listens for `contract_fully_signed` (emails initial PDF without annex) and `contract_completed` (emails final PDF with detailed pickup + return reports annex) queue events. The PDF is built using `pdfkit` featuring side-by-side signature images and is sent to both parties via the existing `transporter`.
-- **Bank Account Enforcement (Frontend Only):** Renters are blocked from booking if `user.bankAccount` is incomplete (`ItemDetailPage.js`). Owners are blocked from creating/updating listings if `user.bankAccount` is incomplete (`PostItemPage.js`). No backend validation exists — this is a frontend-only gate.
 
 
 ## Safe Change Checklist
@@ -246,9 +255,4 @@ When updating this file:
 
 If a task adds meaningful new APIs or flows, update the relevant section in this file before reporting completion.
 
-Account Admin:
-- Email: thanquocthinh112@gmail.com
-- Password: 123456
-Account User (renter and owner):
-- Email: thinhskyduck@gmail.com
-- Password: 123456
+Keep test account credentials in a private local source outside the repository.
