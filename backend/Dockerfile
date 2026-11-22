@@ -1,16 +1,18 @@
-FROM node:20-alpine
+# Build context: repository root (so swagger.yaml is packaged alongside backend/)
+FROM node:24-bookworm-slim
 
-RUN apk update && apk upgrade
+ENV NODE_ENV=production
 
-WORKDIR /usr/src/app
+WORKDIR /usr/src/app/backend
 
-COPY package*.json ./
+COPY backend/package.json backend/package-lock.json ./
+RUN npm ci --omit=dev
 
-# Dùng npm install
-RUN npm install
-
-COPY . .
+COPY backend/ ./
+COPY swagger.yaml /usr/src/app/swagger.yaml
 
 EXPOSE 5000
 
-CMD [ "npm", "start" ]
+USER node
+
+CMD ["node", "server.js"]
