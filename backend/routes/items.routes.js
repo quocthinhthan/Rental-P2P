@@ -20,8 +20,9 @@ router.get('/categories', getCategories);
 router.get('/bestsellers', getBestsellerItems);
 
 const { protect, checkVerified } = require('../middleware/auth.middleware');
+const { aiLimiter } = require('../middleware/rateLimit.middleware');
 
-router.post('/suggest-price', protect, suggestPrice);
+router.post('/suggest-price', aiLimiter, protect, suggestPrice);
 
 // POST /api/items/:id/report
 router.post('/:id/report', protect, reportItem);
