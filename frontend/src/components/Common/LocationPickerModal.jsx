@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import apiService from '../../services/api';
+import CustomSelect from './CustomSelect';
 import 'leaflet/dist/leaflet.css';
 import './LocationPickerModal.css';
 
@@ -13,6 +14,10 @@ const DEFAULT_LOCATION = {
 
 const DEFAULT_RADIUS = '';
 const RADIUS_OPTIONS = ['1', '3', '5', '10', '20', '50'];
+const RADIUS_SELECT_OPTIONS = [
+  { value: '', label: 'Chọn bán kính' },
+  ...RADIUS_OPTIONS.map((option) => ({ value: option, label: `${option} km` })),
+];
 
 const itemMapIcon = L.divIcon({
   className: 'location-picker-item-marker',
@@ -300,18 +305,14 @@ function LocationPickerModal({
 
                 <div className="col-sm-6 col-lg-2">
                   <label className="form-label fw-semibold">Bán kính</label>
-                  <select
-                    className="form-select"
+                  <CustomSelect
+                    variant="compact"
                     value={selectedRadius}
-                    onChange={(event) => setSelectedRadius(event.target.value)}
-                  >
-                    <option value="">Chọn bán kính</option>
-                    {RADIUS_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option} km
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setSelectedRadius(val)}
+                    options={RADIUS_SELECT_OPTIONS}
+                    placeholder="Chọn bán kính"
+                    ariaLabel="Bán kính tìm kiếm"
+                  />
                 </div>
 
                 <div className="col-sm-6 col-lg-3">

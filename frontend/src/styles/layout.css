@@ -103,16 +103,73 @@
 ========================================= */
 
 .custom-dropdown-menu {
-    border: none;
+    border: 1px solid #f1f5f9;
     border-radius: 16px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1); /* Chỉnh bóng đổ gọn lại một chút */
-    padding: 12px 0;
-    min-width: 240px;
+    box-shadow: 0 12px 36px rgba(15, 23, 42, 0.12);
+    padding: 10px 0;
+    min-width: 270px;
     z-index: 1350;
     animation: fadeInDropdown 0.2s ease-out forwards;
-    
+
     /* Đẩy menu xích sang trái một chút để không dính sát lề phải màn hình */
-    margin-right: 15px !important; 
+    margin-right: 15px !important;
+}
+
+.dropdown-user-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+}
+
+.dropdown-user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #fff7ed;
+    border: 2px solid #fed7aa;
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.dropdown-user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.dropdown-admin-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    color: #ea580c;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+}
+
+.dropdown-section-label {
+    padding: 4px 20px 6px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: #94a3b8;
+    user-select: none;
+}
+
+.mobile-account-link--wide {
+    grid-column: 1 / -1;
 }
 
 .custom-dropdown {

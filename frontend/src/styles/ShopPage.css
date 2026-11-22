@@ -334,6 +334,10 @@
 }
 
 /* --- Page Size Dropdown Selector --- */
+.shop-page-size-wrapper {
+  width: 132px;
+}
+
 .shop-page-size-select {
   width: 130px !important;
   height: 38px !important;

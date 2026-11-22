@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { getAdminItemReports, resolveAdminItemReport, updateAdminItemStatus } from '../services/api';
 import Spinner from '../components/Common/Spinner';
+import CustomSelect from '../components/Common/CustomSelect';
 import AdminHero from '../components/Admin/AdminHero';
 import { formatDateTime, getErrorMessage, getName } from '../components/Admin/AdminDisputeResolutionForm';
 import { itemStatusLabels } from '../constants/rentalUi';
@@ -47,12 +48,19 @@ const ACTION_LABELS = ACTION_OPTIONS.reduce((labels, option) => {
   return labels;
 }, {});
 
+const ADJUST_ITEM_STATUS_OPTIONS = [
+  { value: 'available', label: 'Đang hoạt động (AVAILABLE)' },
+  { value: 'delisted', label: 'Đã gỡ (DELISTED)' },
+];
+
 const getId = (value) => (typeof value === 'string' ? value : value?._id || value?.id || '');
 const getItemImage = (item) => (Array.isArray(item?.images) && item.images[0]) || '/img/product-1.png';
 
 export default function AdminItemReportsPage() {
   const [reports, setReports] = useState([]);
   const [pagination, setPagination] = useState({});
+  const [resolveModal, setResolveModal] = useState(null);
+  const [modalValidationError, setModalValidationError] = useState('');
   const [status, setStatus] = useState('');
   const [sort, setSort] = useState('created_desc');
   const [page, setPage] = useState(1);
@@ -103,105 +111,87 @@ export default function AdminItemReportsPage() {
     setPage(1);
   };
 
-  const handleResolve = async (report) => {
+  const handleResolve = (report) => {
     const isAlreadyResolved = report.status === 'resolved';
     const item = report.itemId || {};
     const itemId = item._id || item.id;
 
+    setModalValidationError('');
+
     if (isAlreadyResolved) {
-      const currentStatus = item.status || 'available';
-      const originalActionLabel = ACTION_LABELS[report.action] || 'Không xử lý thêm';
-
-      const { value, isConfirmed } = await Swal.fire({
-        title: 'Điều chỉnh trạng thái sản phẩm ⚖️',
-        html: `
-          <div style="text-align: left; margin-bottom: 12px; font-size: 0.88rem; line-height: 1.5; color: #475569; background: #f1f5f9; padding: 10px; border-radius: 8px;">
-            <p style="margin: 0 0 6px;"><strong>Lưu ý:</strong> Phán quyết ban đầu <strong>"${originalActionLabel}"</strong> và các hình phạt liên quan đến chủ sở hữu vẫn được giữ nguyên.</p>
-            <p style="margin: 0;">Bạn chỉ đang điều chỉnh trạng thái hiển thị của sản phẩm này trên hệ thống.</p>
-          </div>
-          <label style="display:block; text-align:left; font-size:0.85rem; font-weight:600; color:#334155; margin-bottom:4px;">Trạng thái sản phẩm:</label>
-          <select id="item-status" class="swal2-select" style="display:block;width:100%;margin:0 0 12px;">
-            <option value="available" ${currentStatus === 'available' ? 'selected' : ''}>Đang hoạt động (AVAILABLE)</option>
-            <option value="delisted" ${currentStatus === 'delisted' ? 'selected' : ''}>Đã gỡ (DELISTED)</option>
-          </select>
-          <label style="display:block; text-align:left; font-size:0.85rem; font-weight:600; color:#334155; margin-bottom:4px;">Lý do điều chỉnh:</label>
-          <textarea id="adjustment-reason" class="swal2-textarea" placeholder="Nhập lý do điều chỉnh trạng thái sản phẩm..." style="display:block;width:100%;margin:0;"></textarea>
-        `,
-        icon: 'info',
-        showCancelButton: true,
-        confirmButtonText: 'Cập nhật',
-        cancelButtonText: 'Hủy',
-        preConfirm: () => {
-          const status = document.getElementById('item-status')?.value;
-          const reason = document.getElementById('adjustment-reason')?.value?.trim();
-          if (!reason) {
-            Swal.showValidationMessage('Vui lòng nhập lý do điều chỉnh.');
-            return false;
-          }
-          return { status, reason };
-        },
+      setResolveModal({
+        mode: 'adjust_status',
+        report,
+        itemId,
+        originalActionLabel: ACTION_LABELS[report.action] || 'Không xử lý thêm',
+        selectedValue: item.status || 'available',
+        note: '',
       });
-
-      if (!isConfirmed) return;
-
-      try {
-        setActionLoading(report._id);
-        await updateAdminItemStatus(itemId, {
-          status: value.status,
-          reason: value.reason,
-        });
-        Swal.fire('Thành công!', 'Trạng thái sản phẩm đã được điều chỉnh thành công.', 'success');
-        await fetchReports();
-      } catch (error) {
-        Swal.fire('Thất bại', getErrorMessage(error, 'Không thể điều chỉnh trạng thái sản phẩm.'), 'error');
-      } finally {
-        setActionLoading('');
-      }
       return;
     }
 
-    const currentAction = report.action || 'no_action';
-    const currentNote = report.resolutionNote || report.adminNote || '';
-
-    const { value, isConfirmed } = await Swal.fire({
-      title: 'Xử lý báo cáo sản phẩm',
-      html: `
-        <select id="report-action" class="swal2-select" style="display:block;width:100%;margin:0 0 12px;">
-          ${ACTION_OPTIONS.map((option) => `
-            <option value="${option.value}" ${option.value === currentAction ? 'selected' : ''}>
-              ${option.label}
-            </option>
-          `).join('')}
-        </select>
-        <textarea id="report-note" class="swal2-textarea" placeholder="Nhập ghi chú xử lý bắt buộc..." style="display:block;width:100%;margin:0;">${currentNote}</textarea>
-      `,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Xử lý',
-      cancelButtonText: 'Hủy',
-      preConfirm: () => {
-        const action = document.getElementById('report-action')?.value;
-        const adminNote = document.getElementById('report-note')?.value?.trim();
-        if (!adminNote) {
-          Swal.showValidationMessage('Vui lòng nhập ghi chú xử lý.');
-          return false;
-        }
-        return { action, adminNote };
-      },
+    setResolveModal({
+      mode: 'resolve_report',
+      report,
+      itemId,
+      selectedValue: report.action || 'no_action',
+      note: report.resolutionNote || report.adminNote || '',
     });
-    if (!isConfirmed) return;
+  };
+
+  const handleCloseResolveModal = () => {
+    if (actionLoading) return;
+    setResolveModal(null);
+    setModalValidationError('');
+  };
+
+  const handleSubmitResolveModal = async (event) => {
+    event.preventDefault();
+    if (!resolveModal) return;
+
+    const trimmedNote = resolveModal.note.trim();
+    if (!trimmedNote) {
+      setModalValidationError(
+        resolveModal.mode === 'adjust_status'
+          ? 'Vui lòng nhập lý do điều chỉnh.'
+          : 'Vui lòng nhập ghi chú xử lý.'
+      );
+      return;
+    }
+
+    setModalValidationError('');
+    const { mode, report, itemId, selectedValue } = resolveModal;
 
     try {
       setActionLoading(report._id);
-      await resolveAdminItemReport(report._id, {
-        action: value.action,
-        adminNote: value.adminNote,
-        resolutionNote: value.adminNote,
-      });
-      Swal.fire('Thành công!', 'Báo cáo sản phẩm đã được xử lý thành công.', 'success');
+      if (mode === 'adjust_status') {
+        await updateAdminItemStatus(itemId, {
+          status: selectedValue,
+          reason: trimmedNote,
+        });
+        setResolveModal(null);
+        Swal.fire('Thành công!', 'Trạng thái sản phẩm đã được điều chỉnh thành công.', 'success');
+      } else {
+        await resolveAdminItemReport(report._id, {
+          action: selectedValue,
+          adminNote: trimmedNote,
+          resolutionNote: trimmedNote,
+        });
+        setResolveModal(null);
+        Swal.fire('Thành công!', 'Báo cáo sản phẩm đã được xử lý thành công.', 'success');
+      }
       await fetchReports();
     } catch (error) {
-      Swal.fire('Thất bại', getErrorMessage(error, 'Không thể xử lý báo cáo sản phẩm.'), 'error');
+      Swal.fire(
+        'Thất bại',
+        getErrorMessage(
+          error,
+          mode === 'adjust_status'
+            ? 'Không thể điều chỉnh trạng thái sản phẩm.'
+            : 'Không thể xử lý báo cáo sản phẩm.'
+        ),
+        'error'
+      );
     } finally {
       setActionLoading('');
     }
@@ -268,21 +258,23 @@ export default function AdminItemReportsPage() {
         <div className="air-filter-form">
           <div className="aip-field">
             <label className="aip-label">Trạng thái</label>
-            <div className="aip-select-wrap">
-              <select className="aip-select" value={status} onChange={(e) => changeStatus(e.target.value)}>
-                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-              <i className="fas fa-chevron-down aip-select-icon" />
-            </div>
+            <CustomSelect
+              variant="compact"
+              value={status}
+              onChange={(val) => changeStatus(val)}
+              options={STATUS_OPTIONS}
+              ariaLabel="Lọc trạng thái báo cáo"
+            />
           </div>
           <div className="aip-field">
             <label className="aip-label">Sắp xếp</label>
-            <div className="aip-select-wrap">
-              <select className="aip-select" value={sort} onChange={(e) => setSort(e.target.value)}>
-                {SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-              <i className="fas fa-chevron-down aip-select-icon" />
-            </div>
+            <CustomSelect
+              variant="compact"
+              value={sort}
+              onChange={(val) => setSort(val)}
+              options={SORT_OPTIONS}
+              ariaLabel="Sắp xếp báo cáo"
+            />
           </div>
           <button type="button" className="aip-btn aip-btn--ghost air-refresh-btn" onClick={fetchReports}>
             <i className="fas fa-sync-alt" /> Làm mới
@@ -448,6 +440,128 @@ export default function AdminItemReportsPage() {
           </>
         )}
       </section>
+
+      {resolveModal && (
+        <div
+          className="modal show d-block"
+          tabIndex="-1"
+          role="dialog"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.55)', zIndex: 1050 }}
+          onClick={handleCloseResolveModal}
+        >
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '16px' }}>
+              <div className="modal-header border-bottom">
+                <h5 className="modal-title fw-bold">
+                  {resolveModal.mode === 'adjust_status'
+                    ? 'Điều chỉnh trạng thái sản phẩm'
+                    : 'Xử lý báo cáo sản phẩm'}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  aria-label="Đóng"
+                  disabled={Boolean(actionLoading)}
+                  onClick={handleCloseResolveModal}
+                />
+              </div>
+
+              <form onSubmit={handleSubmitResolveModal}>
+                <div className="modal-body">
+                  {resolveModal.mode === 'adjust_status' && (
+                    <div
+                      className="mb-3 p-3 rounded-3"
+                      style={{ background: '#f1f5f9', fontSize: '0.88rem', color: '#475569' }}
+                    >
+                      <p className="mb-1">
+                        <strong>Lưu ý:</strong> Phán quyết ban đầu{' '}
+                        <strong>&ldquo;{resolveModal.originalActionLabel}&rdquo;</strong> và các hình phạt liên quan đến chủ sở hữu vẫn được giữ nguyên.
+                      </p>
+                      <p className="mb-0">
+                        Bạn chỉ đang điều chỉnh trạng thái hiển thị của sản phẩm này trên hệ thống.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold">
+                      {resolveModal.mode === 'adjust_status'
+                        ? 'Trạng thái sản phẩm'
+                        : 'Hướng xử lý'}
+                    </label>
+                    <CustomSelect
+                      value={resolveModal.selectedValue}
+                      onChange={(val) =>
+                        setResolveModal((prev) => (prev ? { ...prev, selectedValue: val } : prev))
+                      }
+                      options={
+                        resolveModal.mode === 'adjust_status'
+                          ? ADJUST_ITEM_STATUS_OPTIONS
+                          : ACTION_OPTIONS
+                      }
+                      disabled={Boolean(actionLoading)}
+                      ariaLabel={
+                        resolveModal.mode === 'adjust_status'
+                          ? 'Trạng thái sản phẩm'
+                          : 'Hướng xử lý'
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label className="form-label fw-semibold">
+                      {resolveModal.mode === 'adjust_status'
+                        ? 'Lý do điều chỉnh'
+                        : 'Ghi chú xử lý'}
+                      <span className="text-danger ms-1">*</span>
+                    </label>
+                    <textarea
+                      className={`form-control ${modalValidationError ? 'is-invalid' : ''}`}
+                      rows="4"
+                      placeholder={
+                        resolveModal.mode === 'adjust_status'
+                          ? 'Nhập lý do điều chỉnh trạng thái sản phẩm...'
+                          : 'Nhập ghi chú xử lý bắt buộc...'
+                      }
+                      value={resolveModal.note}
+                      disabled={Boolean(actionLoading)}
+                      onChange={(e) => {
+                        setResolveModal((prev) => (prev ? { ...prev, note: e.target.value } : prev));
+                        if (modalValidationError) setModalValidationError('');
+                      }}
+                    />
+                    {modalValidationError && (
+                      <div className="invalid-feedback d-block">{modalValidationError}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="modal-footer border-top">
+                  <button
+                    type="button"
+                    className="btn btn-light rounded-pill px-4"
+                    disabled={Boolean(actionLoading)}
+                    onClick={handleCloseResolveModal}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary rounded-pill px-4"
+                    disabled={Boolean(actionLoading)}
+                  >
+                    {actionLoading
+                      ? 'Đang xử lý...'
+                      : resolveModal.mode === 'adjust_status'
+                        ? 'Cập nhật'
+                        : 'Xử lý'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

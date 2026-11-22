@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import apiService from '../../services/api';
+import CustomSelect from '../Common/CustomSelect';
+
+const CONDITION_OPTIONS = [
+  { value: 'good', label: 'Tốt / Nguyên vẹn' },
+  { value: 'fair', label: 'Bình thường / Hao mòn nhẹ' },
+  { value: 'damaged', label: 'Hư hỏng / Hao mòn nhiều' },
+];
 
 const modalCopy = {
   pickup: {
@@ -227,18 +234,13 @@ function HandoverModal({ isOpen, rental, type = 'pickup', report, onClose, onSuc
               <label style={{ display: 'block', fontWeight: '600', fontSize: '0.875rem', color: '#374151', marginBottom: '6px' }}>
                 Tình trạng sản phẩm thực tế <span style={{ color: '#dc2626' }}>*</span>
               </label>
-              <select
-                className="form-select"
-                style={{ borderRadius: '8px', border: '1px solid #d1d5db', padding: '8px 12px', fontSize: '0.9rem', width: '100%', backgroundColor: '#fff' }}
+              <CustomSelect
                 value={condition}
-                onChange={(e) => setCondition(e.target.value)}
+                onChange={(val) => setCondition(val)}
+                options={CONDITION_OPTIONS}
                 disabled={submitting || !isEditing}
-                required
-              >
-                <option value="good">Tốt / Nguyên vẹn</option>
-                <option value="fair">Bình thường / Hao mòn nhẹ</option>
-                <option value="damaged">Hư hỏng / Hao mòn nhiều</option>
-              </select>
+                ariaLabel="Tình trạng sản phẩm thực tế"
+              />
             </div>
 
             {/* Phụ kiện */}

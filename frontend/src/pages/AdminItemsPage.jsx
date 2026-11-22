@@ -7,6 +7,7 @@ import {
   updateAdminItemStatus
 } from '../services/api';
 import Spinner from '../components/Common/Spinner';
+import CustomSelect from '../components/Common/CustomSelect';
 import AdminHero from '../components/Admin/AdminHero';
 import { getErrorMessage, getName } from '../components/Admin/AdminDisputeResolutionForm';
 import { itemStatusLabels } from '../constants/rentalUi';
@@ -214,46 +215,37 @@ export default function AdminItemsPage() {
             {/* Status dropdown */}
             <div className="aip-field aip-field--select">
               <label className="aip-label">Trạng thái</label>
-              <div className="aip-select-wrap">
-                <select
-                  className="aip-select"
-                  value={draft.status}
-                  onChange={(e) => setDraft((v) => ({ ...v, status: e.target.value }))}
-                >
-                  {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <i className="fas fa-chevron-down aip-select-icon" />
-              </div>
+              <CustomSelect
+                variant="compact"
+                value={draft.status}
+                onChange={(val) => setDraft((v) => ({ ...v, status: val }))}
+                options={STATUS_OPTIONS}
+                ariaLabel="Lọc theo trạng thái"
+              />
             </div>
 
             {/* Featured dropdown */}
             <div className="aip-field aip-field--select">
               <label className="aip-label">Nổi bật</label>
-              <div className="aip-select-wrap">
-                <select
-                  className="aip-select"
-                  value={draft.featured}
-                  onChange={(e) => setDraft((v) => ({ ...v, featured: e.target.value }))}
-                >
-                  {FEATURED_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <i className="fas fa-chevron-down aip-select-icon" />
-              </div>
+              <CustomSelect
+                variant="compact"
+                value={draft.featured}
+                onChange={(val) => setDraft((v) => ({ ...v, featured: val }))}
+                options={FEATURED_OPTIONS}
+                ariaLabel="Lọc theo nổi bật"
+              />
             </div>
 
             {/* Sort dropdown */}
             <div className="aip-field aip-field--select">
               <label className="aip-label">Sắp xếp</label>
-              <div className="aip-select-wrap">
-                <select
-                  className="aip-select"
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value)}
-                >
-                  {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <i className="fas fa-chevron-down aip-select-icon" />
-              </div>
+              <CustomSelect
+                variant="compact"
+                value={sort}
+                onChange={(val) => setSort(val)}
+                options={SORT_OPTIONS}
+                ariaLabel="Sắp xếp sản phẩm"
+              />
             </div>
           </div>
 
@@ -352,20 +344,26 @@ export default function AdminItemsPage() {
                             >
                               <i className={`fas ${item.isFeatured ? 'fa-star-half-alt' : 'fa-star'}`} />
                             </button>
-                            <div className="aip-select-wrap" style={{ width: '108px' }}>
-                              <select
-                                className="aip-select aip-select--sm"
+                            <div style={{ width: '112px' }}>
+                              <CustomSelect
+                                variant="compact"
+                                size="sm"
+                                align="right"
+                                menuMinWidth={170}
                                 value=""
+                                placeholder="Đổi TT"
                                 disabled={actionLoading === `${item._id}-status` || hasActiveRental}
-                                onChange={(e) => e.target.value && handleStatusUpdate(item, e.target.value)}
+                                onChange={(val) => val && handleStatusUpdate(item, val)}
                                 title={hasActiveRental ? 'Đang có đơn thuê' : 'Đổi trạng thái'}
-                              >
-                                <option value="">Đổi TT</option>
-                                {['available', 'delisted'].map((status) => (
-                                  <option key={status} value={status}>{itemStatusLabels[status]}</option>
-                                ))}
-                              </select>
-                              <i className="fas fa-chevron-down aip-select-icon" />
+                                options={[
+                                  { value: '', label: 'Đổi TT', disabled: true },
+                                  ...['available', 'delisted'].map((status) => ({
+                                    value: status,
+                                    label: itemStatusLabels[status],
+                                  })),
+                                ]}
+                                ariaLabel="Đổi trạng thái sản phẩm"
+                              />
                             </div>
                           </div>
                         </td>

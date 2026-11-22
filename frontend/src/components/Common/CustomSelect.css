@@ -1,0 +1,298 @@
+/* =========================================
+   SHARED CUSTOM SELECT COMPONENT
+   Unified dropdown across all user & admin screens
+   ========================================= */
+
+.cs-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+}
+
+.cs-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1.5px solid #dee2e6;
+  border-radius: 10px;
+  background-color: #ffffff;
+  color: #1e293b;
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  outline: none;
+  user-select: none;
+}
+
+.cs-trigger:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+.cs-trigger:focus-visible,
+.cs-trigger.is-open {
+  border-color: #0d6efd;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3.5px rgba(13, 110, 253, 0.12);
+}
+
+.cs-trigger.is-invalid {
+  border-color: #dc3545;
+}
+
+.cs-trigger.is-invalid:focus-visible,
+.cs-trigger.is-invalid.is-open {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 3.5px rgba(220, 53, 69, 0.14);
+}
+
+.cs-trigger:disabled {
+  background-color: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.cs-trigger-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.cs-trigger-icon {
+  color: #94a3b8;
+  font-size: 0.92rem;
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.cs-trigger.is-open .cs-trigger-icon {
+  color: #0d6efd;
+}
+
+.cs-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.cs-trigger-label.is-placeholder {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.cs-chevron {
+  font-size: 0.72rem;
+  color: #64748b;
+  flex-shrink: 0;
+  transition: transform 0.22s ease, color 0.2s ease;
+}
+
+.cs-trigger.is-open .cs-chevron {
+  transform: rotate(180deg);
+  color: #0d6efd;
+}
+
+/* ── Variant: filter (ShopPage sidebar) ── */
+.cs-wrapper--filter .cs-trigger {
+  min-height: 50px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+}
+
+.cs-wrapper--filter .cs-trigger:hover:not(:disabled),
+.cs-wrapper--filter .cs-trigger.is-open {
+  background-color: #ffffff;
+  border-color: #3b82f6;
+  color: #0d6efd;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Variant: pill (Header search bar inner select) ── */
+.cs-wrapper--pill {
+  width: auto;
+}
+
+.cs-wrapper--pill .cs-trigger {
+  min-height: 40px;
+  min-width: 126px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.cs-wrapper--pill .cs-trigger:hover:not(:disabled),
+.cs-wrapper--pill .cs-trigger.is-open {
+  background: rgba(13, 110, 253, 0.08);
+  color: #0d6efd;
+  box-shadow: none;
+}
+
+.cs-wrapper--pill .cs-trigger-label {
+  max-width: 120px;
+}
+
+/* ── Variant: compact (Pagination & Admin filters/tables) ── */
+.cs-wrapper--compact .cs-trigger {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  color: #334155;
+  font-size: 0.87rem;
+  font-weight: 600;
+}
+
+.cs-wrapper--compact .cs-trigger:hover:not(:disabled) {
+  border-color: #3b82f6;
+}
+
+.cs-wrapper--compact .cs-trigger.is-open {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+/* ── Size: sm (inline table controls) ── */
+.cs-wrapper--sm .cs-trigger {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  gap: 6px;
+}
+
+/* ── Portal Dropdown Menu ── */
+.cs-menu {
+  position: fixed;
+  z-index: 10550;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.06);
+  max-height: 270px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: csFadeIn 0.14s ease-out forwards;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.cs-menu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.cs-menu::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+@keyframes csFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cs-menu.is-above {
+  animation-name: csFadeInUp;
+}
+
+@keyframes csFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cs-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  line-height: 1.35;
+}
+
+.cs-option:hover:not(:disabled),
+.cs-option.is-highlighted:not(:disabled) {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.cs-option.is-selected {
+  background-color: #fff7ed;
+  color: #ea580c;
+  font-weight: 700;
+}
+
+.cs-option.is-selected:hover:not(:disabled),
+.cs-option.is-selected.is-highlighted:not(:disabled) {
+  background-color: #ffedd5;
+  color: #ea580c;
+}
+
+.cs-option:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.cs-option-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.cs-option-check {
+  font-size: 0.75rem;
+  color: #ea580c;
+  flex-shrink: 0;
+}
+
+.cs-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}

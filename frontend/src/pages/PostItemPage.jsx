@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import L from 'leaflet';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import apiService from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import CustomSelect from '../components/Common/CustomSelect';
 import Swal from 'sweetalert2';
 import 'leaflet/dist/leaflet.css';
 import '../styles/PostItemPage.css';
@@ -100,6 +101,7 @@ function PostItemPage() {
   const [showPreview, setShowPreview] = useState(false);
 
   const {
+    control,
     register,
     handleSubmit,
     setValue,
@@ -108,12 +110,27 @@ function PostItemPage() {
     formState: { errors },
   } = useForm({
     defaultValues: {
+      category: '',
       depositPercentage: 100,
       lat: '',
       lng: '',
       address: '',
     },
   });
+
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn danh mục' },
+      ...categories.map((cat) => ({ value: cat, label: cat })),
+      { value: '__new__', label: '+ Thêm danh mục mới' },
+    ],
+    [categories]
+  );
+
+  const depositOptions = useMemo(
+    () => [0, 30, 50, 80, 100, 120].map((pct) => ({ value: pct, label: `${pct}%` })),
+    []
+  );
 
   const watchedCategory = watch('category');
   const watchDescription = watch('description');
@@ -509,17 +526,23 @@ function PostItemPage() {
                   <div className="row g-3 mb-3">
                     <div className="col-md-6">
                       <label className="form-label">Danh mục <sup>*</sup></label>
-                      <select
-                        className={`form-select ${errors.category ? 'is-invalid' : ''}`}
-                        {...register('category', { required: 'Vui lòng chọn danh mục' })}
-                      >
-                        <option value="">Chọn danh mục</option>
-                        {categories.map((cat) => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                        <option value="__new__">+ Thêm danh mục mới</option>
-                      </select>
-                      {errors.category && <div className="invalid-feedback">{errors.category.message}</div>}
+                      <Controller
+                        name="category"
+                        control={control}
+                        rules={{ required: 'Vui lòng chọn danh mục' }}
+                        render={({ field }) => (
+                          <CustomSelect
+                            value={field.value ?? ''}
+                            onChange={(val) => field.onChange(val)}
+                            onBlur={field.onBlur}
+                            options={categoryOptions}
+                            placeholder="Chọn danh mục"
+                            isInvalid={Boolean(errors.category)}
+                            ariaLabel="Danh mục"
+                          />
+                        )}
+                      />
+                      {errors.category && <div className="invalid-feedback d-block">{errors.category.message}</div>}
                     </div>
 
                     {watchedCategory === '__new__' && (
@@ -571,23 +594,32 @@ function PostItemPage() {
                   <div className="row g-3 mt-1">
                     <div className="col-md-6">
                       <label className="form-label">Tỉ lệ tiền cọc yêu cầu (%) <sup>*</sup></label>
-                      <select
-                        className={`form-select ${errors.depositPercentage ? 'is-invalid' : ''}`}
-                        {...register('depositPercentage', {
-                          required: 'Vui lòng chọn tỉ lệ tiền cọc',
-                          valueAsNumber: true,
-                          min: { value: 0, message: 'Tỉ lệ tối thiểu là 0%' },
-                          max: { value: 120, message: 'Tỉ lệ tối đa là 120%' },
-                        })}
-                      >
-                        <option value={0}>0%</option>
-                        <option value={30}>30%</option>
-                        <option value={50}>50%</option>
-                        <option value={80}>80%</option>
-                        <option value={100}>100%</option>
-                        <option value={120}>120%</option>
-                      </select>
-                      {errors.depositPercentage && <div className="invalid-feedback">{errors.depositPercentage.message}</div>}
+                      <Controller
+                        name="depositPercentage"
+                        control={control}
+                        rules={{
+                          validate: (val) => {
+                            const num = Number(val);
+                            if (val === '' || val === null || val === undefined || Number.isNaN(num)) {
+                              return 'Vui lòng chọn tỉ lệ tiền cọc';
+                            }
+                            if (num < 0) return 'Tỉ lệ tối thiểu là 0%';
+                            if (num > 120) return 'Tỉ lệ tối đa là 120%';
+                            return true;
+                          },
+                        }}
+                        render={({ field }) => (
+                          <CustomSelect
+                            value={field.value ?? 100}
+                            onChange={(val) => field.onChange(Number(val))}
+                            onBlur={field.onBlur}
+                            options={depositOptions}
+                            isInvalid={Boolean(errors.depositPercentage)}
+                            ariaLabel="Tỉ lệ tiền cọc yêu cầu"
+                          />
+                        )}
+                      />
+                      {errors.depositPercentage && <div className="invalid-feedback d-block">{errors.depositPercentage.message}</div>}
                     </div>
                   </div>
                 </div>
