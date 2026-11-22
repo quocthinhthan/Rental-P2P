@@ -14,6 +14,7 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const qs = require('qs');
 const { saveWithUniqueCode } = require('../utils/codeGenerator');
+const { isValidCloudinaryImageUrl } = require('../utils/urlValidation');
 const { recalculateUserTrustScore } = require('../services/trustScore.service');
 const {
   authorizeChatRead,
@@ -45,19 +46,34 @@ const formatDateForVNPay = (date) => {
 };
 
 const getClientIp = (req) => {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (forwardedFor) {
-    return forwardedFor.split(',')[0].trim();
+  const rawIp = req.ip
+    || req.socket?.remoteAddress
+    || req.connection?.remoteAddress
+    || '127.0.0.1';
+
+  if (rawIp === '::1') {
+    return '127.0.0.1';
   }
 
-  return req.connection?.remoteAddress
-    || req.socket?.remoteAddress
-    || req.connection?.socket?.remoteAddress
-    || '127.0.0.1';
+  if (typeof rawIp === 'string' && rawIp.startsWith('::ffff:')) {
+    return rawIp.slice(7);
+  }
+
+  return rawIp;
+};
+
+const getPrimaryFrontendUrl = () => {
+  const raw = process.env.FRONTEND_URL || '';
+  const first = raw
+    .split(',')
+    .map((value) => value.trim().replace(/\/+$/, ''))
+    .find(Boolean);
+
+  return first || 'http://localhost:3000';
 };
 
 const buildFrontendVNPayReturnUrl = (params = {}) => {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const frontendUrl = getPrimaryFrontendUrl();
   const query = qs.stringify(params);
 
   return `${frontendUrl}/vnpay-return${query ? `?${query}` : ''}`;
@@ -694,6 +710,14 @@ exports.signContract = async (req, res) => {
       return res.status(400).json({ message: 'Vui lòng cung cấp chữ ký điện tử!' });
     }
 
+    if (!isValidCloudinaryImageUrl(signatureUrl)) {
+      return res.status(400).json({
+        message: 'URL chữ ký không hợp lệ. Chỉ chấp nhận ảnh chữ ký hợp lệ trên Cloudinary.'
+      });
+    }
+
+    const normalizedSignatureUrl = signatureUrl.trim();
+
     const rental = await Rental.findById(req.params.id);
     if (!rental || !rental.contractId) return res.status(404).json({ message: 'Không tìm thấy hợp đồng' });
 
@@ -708,11 +732,11 @@ exports.signContract = async (req, res) => {
     // Gắn thời gian VÀ dán ảnh chữ ký vào đúng người
     if (rental.ownerId.equals(userId)) {
       contract.ownerSignedAt = new Date();
-      contract.ownerSignatureUrl = signatureUrl;
+      contract.ownerSignatureUrl = normalizedSignatureUrl;
     } 
     else if (rental.renterId.equals(userId)) {
       contract.renterSignedAt = new Date();
-      contract.renterSignatureUrl = signatureUrl;
+      contract.renterSignatureUrl = normalizedSignatureUrl;
     } 
     else {
       return res.status(403).json({ message: 'Bạn không có quyền ký hợp đồng này' });

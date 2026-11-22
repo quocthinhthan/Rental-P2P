@@ -182,7 +182,7 @@ exports.verifyEKYC = async (req, res) => {
     const realIdNumber = extractedData.id; 
     const realName = extractedData.name;   
 
-    console.log(`[DEBUG - eKYC] ✔️ AI đọc thành công: [${realName}] - [${realIdNumber}]`);
+    console.info('[eKYC] AI verification succeeded', { userId: String(user._id) });
 
     // GHI NHẬN TICK XANH CHO USER NÀY VÀO DB
     user.ekycStatus = 'verified';

@@ -21,14 +21,103 @@ const {
   authorizeChatRead,
   authorizeChatWrite
 } = require('./services/chatAuthorization.service');
+const { apiLimiter } = require('./middleware/rateLimit.middleware');
+
+const normalizeOrigin = (origin) => {
+  if (typeof origin !== 'string') return '';
+  const trimmed = origin.trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return '';
+  }
+};
+
+const getAllowedOrigins = () => {
+  const configured = (process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(normalizeOrigin)
+    .filter(Boolean);
+
+  if (configured.length > 0) {
+    return configured;
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    return ['http://localhost:3000'];
+  }
+
+  return [];
+};
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
+  return getAllowedOrigins().includes(normalized);
+};
+
+const corsOriginValidator = (origin, callback) => {
+  if (isOriginAllowed(origin)) {
+    return callback(null, true);
+  }
+  return callback(null, false);
+};
+
+const corsOptions = {
+  origin: corsOriginValidator,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+const createSocketRateLimiter = ({ windowMs = 10000, maxEvents = 10 } = {}) => {
+  const buckets = new Map();
+
+  const isAllowed = (key, now = Date.now()) => {
+    const bucketKey = String(key);
+    const cutoff = now - windowMs;
+    const timestamps = (buckets.get(bucketKey) || []).filter((ts) => ts > cutoff);
+
+    if (timestamps.length >= maxEvents) {
+      buckets.set(bucketKey, timestamps);
+      return false;
+    }
+
+    timestamps.push(now);
+    buckets.set(bucketKey, timestamps);
+
+    if (buckets.size > 1000) {
+      for (const [entryKey, entryTimestamps] of buckets.entries()) {
+        const fresh = entryTimestamps.filter((ts) => ts > cutoff);
+        if (fresh.length === 0) {
+          buckets.delete(entryKey);
+        } else {
+          buckets.set(entryKey, fresh);
+        }
+      }
+    }
+
+    return true;
+  };
+
+  return { isAllowed, buckets };
+};
+
+const socketMessageRateLimiter = createSocketRateLimiter({
+  windowMs: 10000,
+  maxEvents: 10
+});
 
 const app = express();
+// Tin tưởng 1 lớp reverse proxy (Nginx) cho req.ip, express-rate-limit và VNPay IP
+app.set('trust proxy', 1);
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Cho phép FE (React/Vue/Flutter) kết nối
-    methods: ["GET", "POST"]
+    origin: corsOriginValidator,
+    methods: ['GET', 'POST']
   }
 });
 
@@ -88,6 +177,14 @@ io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     // data FE gửi lên sẽ có dạng: { rentalId, senderId, content }
     try {
+      const rateLimitKey = socket.user?._id || socket.id;
+      if (!socketMessageRateLimiter.isAllowed(rateLimitKey)) {
+        socket.emit('chat_error', {
+          message: 'Bạn gửi tin nhắn quá nhanh. Vui lòng chờ vài giây rồi thử lại.'
+        });
+        return;
+      }
+
       const rentalId = data?.rentalId;
       const content = typeof data?.content === 'string' ? data.content.trim() : '';
 
@@ -125,11 +222,10 @@ io.on('connection', (socket) => {
 const swaggerDocument = YAML.load(path.join(__dirname, '..', 'swagger.yaml'));
 
 // --- Middleware ---
-// Swagger UI và frontend local đều cần gọi API thoải mái trong môi trường dev.
-// Nếu cần siết lại sau, ta có thể giới hạn bằng env var riêng.
-app.use(cors());
-app.options('*', cors());
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
+app.use('/api', apiLimiter);
 
 // --- Hàm kết nối DB ---
 const connectDB = async () => {
@@ -196,5 +292,17 @@ const startServer = async () => {
   }
 };
 
-// Gọi hàm để bắt đầu toàn bộ quá trình
-startServer();
+// Gọi hàm để bắt đầu toàn bộ quá trình khi chạy trực tiếp
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  app,
+  server,
+  io,
+  startServer,
+  getAllowedOrigins,
+  isOriginAllowed,
+  createSocketRateLimiter
+};

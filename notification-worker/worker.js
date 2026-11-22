@@ -60,25 +60,164 @@ const formatDate = (dateString) => {
 
 const https = require('https');
 
+const ALLOWED_IMAGE_HOST = 'res.cloudinary.com';
+const IMAGE_FETCH_TIMEOUT_MS = 10000;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+const CLOUD_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+const sanitizeUrl = (url) => {
+  if (typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  return trimmed;
+};
+
+const validateCloudinaryImageUrl = (
+  rawUrl,
+  expectedCloudName = process.env.CLOUDINARY_CLOUD_NAME
+) => {
+  const sanitized = sanitizeUrl(rawUrl);
+  if (!sanitized || sanitized.length > 2048) {
+    throw new Error('Invalid or empty signature image URL');
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(sanitized);
+  } catch {
+    throw new Error('Malformed signature image URL');
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Blocked non-HTTPS signature image URL');
+  }
+  if (parsed.hostname.toLowerCase() !== ALLOWED_IMAGE_HOST) {
+    throw new Error(`Blocked untrusted signature image host: ${parsed.hostname}`);
+  }
+  if (parsed.username || parsed.password || parsed.port) {
+    throw new Error('Blocked signature image URL with credentials or custom port');
+  }
+
+  let decodedPathname;
+  try {
+    decodedPathname = decodeURIComponent(parsed.pathname || '');
+  } catch {
+    throw new Error('Malformed signature image URL path');
+  }
+
+  if (decodedPathname.includes('..') || decodedPathname.includes('\\')) {
+    throw new Error('Blocked signature image URL with path traversal');
+  }
+
+  const segments = (parsed.pathname || '').split('/').filter(Boolean);
+  if (segments.length < 4) {
+    throw new Error('Invalid Cloudinary image path');
+  }
+
+  const [cloudName, resourceType, deliveryType, ...rest] = segments;
+  if (!CLOUD_NAME_PATTERN.test(cloudName)) {
+    throw new Error('Invalid Cloudinary cloud name');
+  }
+
+  const normalizedExpectedCloud = typeof expectedCloudName === 'string'
+    ? expectedCloudName.trim()
+    : '';
+  if (normalizedExpectedCloud && cloudName !== normalizedExpectedCloud) {
+    throw new Error('Blocked signature image URL from unexpected Cloudinary account');
+  }
+
+  if (resourceType !== 'image' || deliveryType !== 'upload') {
+    throw new Error('Blocked non-upload Cloudinary resource path');
+  }
+
+  if (rest.length === 0 || rest.some((seg) => seg === '.' || seg === '..')) {
+    throw new Error('Invalid Cloudinary image asset path');
+  }
+
+  return parsed.toString();
+};
+
 const fetchImageBuffer = (url) => {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    let validatedUrl;
+    try {
+      validatedUrl = validateCloudinaryImageUrl(url);
+    } catch (validationErr) {
+      reject(validationErr);
+      return;
+    }
+
+    let settled = false;
+    let req;
+    const finish = (err, buffer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(overallTimer);
+      if (err) {
+        reject(err);
+      } else {
+        resolve(buffer);
+      }
+    };
+
+    const overallTimer = setTimeout(() => {
+      const timeoutError = new Error(`Image fetch timed out after ${IMAGE_FETCH_TIMEOUT_MS}ms`);
+      if (req) req.destroy(timeoutError);
+      finish(timeoutError);
+    }, IMAGE_FETCH_TIMEOUT_MS);
+
+    req = https.get(validatedUrl, { timeout: IMAGE_FETCH_TIMEOUT_MS }, (res) => {
       if (res.statusCode !== 200) {
-        reject(new Error(`Failed to fetch image: status code ${res.statusCode}`));
+        res.resume();
+        finish(new Error(`Failed to fetch image: status code ${res.statusCode}`));
         return;
       }
+
+      const contentLength = Number(res.headers['content-length']);
+      if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
+        res.resume();
+        req.destroy();
+        finish(new Error(`Image size (${contentLength} bytes) exceeds ${MAX_IMAGE_BYTES} byte limit`));
+        return;
+      }
+
       const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
+      let totalBytes = 0;
+
+      res.on('data', (chunk) => {
+        totalBytes += chunk.length;
+        if (totalBytes > MAX_IMAGE_BYTES) {
+          res.resume();
+          req.destroy();
+          finish(new Error(`Image stream exceeded ${MAX_IMAGE_BYTES} byte limit`));
+          return;
+        }
+        chunks.push(chunk);
+      });
+
+      res.on('end', () => finish(null, Buffer.concat(chunks)));
+      res.on('error', (err) => finish(err));
+    });
+
+    req.setTimeout(IMAGE_FETCH_TIMEOUT_MS, () => {
+      const timeoutError = new Error(`Image fetch socket timed out after ${IMAGE_FETCH_TIMEOUT_MS}ms`);
+      req.destroy(timeoutError);
+      finish(timeoutError);
+    });
+
+    req.on('error', (err) => finish(err));
   });
 };
 
-const sanitizeUrl = (url) => {
-  if (!url) return '';
-  if (url.startsWith('//')) return `https:${url}`;
-  return url;
+const getPrimaryFrontendUrl = (fallback = 'http://localhost:3000') => {
+  const raw = process.env.FRONTEND_URL || '';
+  const first = raw
+    .split(',')
+    .map((value) => value.trim().replace(/\/+$/, ''))
+    .find(Boolean);
+
+  return first || fallback;
 };
 
 // // Shared helper to generate a beautiful contract PDF
@@ -521,7 +660,7 @@ const sendNotification = async (data) => {
 
     if (data.task === 'forgot_password') {
       console.info('[WORKER] Sending password reset email', { requestId: data.requestId });
-      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${data.resetToken}`;
+      const resetUrl = `${getPrimaryFrontendUrl('http://localhost:3000')}/reset-password/${data.resetToken}`;
 
       const mailOptions = {
         from: `"P2P Rental" <${process.env.EMAIL_USER}>`,
@@ -593,7 +732,7 @@ const sendNotification = async (data) => {
             <p><strong>Ghi chú:</strong> ${note || '<em>Không có</em>'}</p>
           </div>
 
-          <a href="${process.env.FRONTEND_URL || '#'}"
+          <a href="${getPrimaryFrontendUrl('#')}"
             style="display:inline-block;margin-top:16px;padding:10px 18px;background:#007bff;color:#fff;text-decoration:none;border-radius:6px;">
             Xử lý yêu cầu
           </a>
@@ -646,7 +785,7 @@ const sendNotification = async (data) => {
             ${message}
           </div>
 
-          <a href="${process.env.FRONTEND_URL || '#'}"
+          <a href="${getPrimaryFrontendUrl('#')}"
             style="display:inline-block;padding:10px 18px;background:${color};color:#fff;text-decoration:none;border-radius:6px;">
             Xem chi tiết đơn thuê
           </a>
@@ -718,5 +857,18 @@ const startWorker = async () => {
   }
 };
 
-console.log('[WORKER] Starting...');
-startWorker();
+if (require.main === module) {
+  console.log('[WORKER] Starting...');
+  startWorker();
+}
+
+module.exports = {
+  ALLOWED_IMAGE_HOST,
+  IMAGE_FETCH_TIMEOUT_MS,
+  MAX_IMAGE_BYTES,
+  sanitizeUrl,
+  validateCloudinaryImageUrl,
+  fetchImageBuffer,
+  generateContractPDF,
+  startWorker
+};
