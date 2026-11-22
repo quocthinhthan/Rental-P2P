@@ -6,7 +6,7 @@ const Contract = require('../models/Contract.model');
 const User = require('../models/User.model');
 const MESSAGES = require('../constants/messages.constant');
 const { ItemStatus } = require('../enums/item.enum');
-const { RentalStatus } = require('../enums/rental.enum');
+const { RentalStatus, PaymentStatus } = require('../enums/rental.enum');
 const mongoose = require('mongoose');
 const {
   getTrustLevelFromScore,
@@ -151,6 +151,7 @@ exports.getMyRentalsView = async (req, res) => {
     
     // 3. Lấy các vật phẩm tôi đã đăng (myItems)
     const myItems = await Item.find({ ownerId: userId, status: { $ne: ItemStatus.DELISTED } })
+      .select('code name pricePerDay category status images')
       .sort({ createdAt: -1 });
 
     const rentalIds = [...asRenter, ...asOwner].map((rental) => rental._id);
@@ -374,18 +375,20 @@ exports.getFinancialStatsView = async (req, res) => {
       numBuckets = 6;
     }
 
-    // Lấy toàn bộ đơn hàng liên quan đến người dùng này
+    // Các bộ lọc tổng tiền và kỳ biểu đồ dùng mốc khác nhau, nên giữ toàn bộ lịch sử.
     const rentals = await Rental.find({
       $or: [
         { ownerId: userId },
         { renterId: userId }
       ]
     })
+      .select('code itemId ownerId renterId startDate endDate rentalFee depositAmount payoutAmount commissionAmount status paymentStatus createdAt')
       .sort({ createdAt: -1 })
       .populate({
         path: 'itemId',
-        select: '_id code name pricePerDay images'
-      });
+        select: 'code name images'
+      })
+      .lean();
 
     let ownerReceived = 0;
     let ownerPending = 0;
@@ -429,7 +432,7 @@ exports.getFinancialStatsView = async (req, res) => {
     const now = new Date();
 
     // 3. Phân lọc và tính toán dòng tiền
-    const filteredRentals = [];
+    const recentRentals = [];
 
     for (const rental of rentals) {
       const isOwner = rental.ownerId.toString() === userId.toString();
@@ -444,7 +447,9 @@ exports.getFinancialStatsView = async (req, res) => {
       }
 
       if (isWithinLimit) {
-        filteredRentals.push(rental);
+        if (recentRentals.length < 10) {
+          recentRentals.push(rental);
+        }
 
         const fee = rental.rentalFee || 0;
         const deposit = rental.depositAmount || 0;
@@ -524,8 +529,9 @@ exports.getFinancialStatsView = async (req, res) => {
     }));
 
     // Lấy tối đa 10 giao dịch tài chính thuộc bộ lọc thời gian
-    const recentTransactions = filteredRentals.slice(0, 10).map(rental => {
+    const recentTransactions = recentRentals.map(rental => {
       const isOwner = rental.ownerId.toString() === userId.toString();
+      const { status = RentalStatus.PENDING_PAYMENT, paymentStatus = PaymentStatus.PENDING } = rental;
       return {
         _id: rental._id,
         code: rental.code,
@@ -537,8 +543,8 @@ exports.getFinancialStatsView = async (req, res) => {
         amount: isOwner ? (rental.payoutAmount !== undefined ? rental.payoutAmount : (rental.rentalFee * 0.9 || 0)) : (rental.rentalFee || 0),
         rentalFee: rental.rentalFee || 0,
         depositAmount: rental.depositAmount || 0,
-        status: rental.status,
-        paymentStatus: rental.paymentStatus,
+        status,
+        paymentStatus,
         createdAt: rental.createdAt
       };
     });

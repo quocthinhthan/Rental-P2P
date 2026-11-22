@@ -41,7 +41,7 @@ function ContractModal({ isOpen, contract, rental, onClose }) {
   const resolveImageUrl = (url) => {
     if (!url) return '';
     if (url.startsWith('http') || url.startsWith('data:image')) return url;
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+    const apiUrl = import.meta.env.REACT_APP_API_URL || 'http://localhost:5000/api';
     const host = apiUrl.replace(/\/api\/?$/, '');
     const cleanUrl = url.startsWith('/') ? url : `/${url}`;
     return `${host}${cleanUrl}`;

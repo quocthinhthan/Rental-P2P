@@ -13,6 +13,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=24.22.0 <25.0.0"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "amqplib": "^0.10.9",
