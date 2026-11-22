@@ -1,15 +1,22 @@
-# Nâng cấp lên Node.js 20
-FROM node:20-alpine
+FROM node:24-bookworm-slim
 
-RUN apk update && apk upgrade
+ENV NODE_ENV=production \
+    PDF_FONT_REGULAR=/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf \
+    PDF_FONT_BOLD=/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-liberation \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -f "$PDF_FONT_REGULAR" \
+    && test -f "$PDF_FONT_BOLD"
 
 WORKDIR /usr/src/app
 
-COPY package*.json ./
-
-# Dùng npm install
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY . .
 
-CMD [ "npm", "start" ]
+USER node
+
+CMD ["node", "worker.js"]
