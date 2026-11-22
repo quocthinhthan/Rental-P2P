@@ -15,9 +15,9 @@ function ContactPage() {
       {/* Single Page Header End */}
 
       {/* Contact Start */}
-      <div className="container-fluid contact py-5">
-        <div className="container py-5">
-          <div className="p-5 bg-light rounded">
+      <div className="container-fluid contact py-4 py-md-5">
+        <div className="container py-3 py-md-5">
+          <div className="p-3 p-md-5 bg-light rounded">
             <div className="row g-4">
               <div className="col-12">
                 <div className="text-center mx-auto wow fadeInUp" data-wow-delay="0.1s" style={{ maxWidth: '900px' }}>

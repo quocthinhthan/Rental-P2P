@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import { resolveDispute } from '../../services/api';
+import CustomSelect from '../Common/CustomSelect';
 
 export const WINNER_LABELS = {
   renter: 'Người thuê thắng',
@@ -194,40 +195,48 @@ export default function AdminDisputeResolutionForm({
       <div className="row g-3">
         <div className="col-md-4">
           <label className="form-label admin-dispute-form-label">Kết quả</label>
-          <select className="form-select" value={winner} onChange={(event) => setWinner(event.target.value)}>
-            <option value="renter">{WINNER_LABELS.renter}</option>
-            <option value="owner">{WINNER_LABELS.owner}</option>
-            <option value="none">{WINNER_LABELS.none}</option>
-          </select>
+          <CustomSelect
+            value={winner}
+            onChange={(val) => setWinner(val)}
+            options={[
+              { value: 'renter', label: WINNER_LABELS.renter },
+              { value: 'owner', label: WINNER_LABELS.owner },
+              { value: 'none', label: WINNER_LABELS.none },
+            ]}
+            ariaLabel="Kết quả tranh chấp"
+          />
         </div>
 
         <div className="col-md-4">
           <label className="form-label admin-dispute-form-label">Chế tài</label>
-          <select
-            className="form-select"
+          <CustomSelect
             value={penaltyType}
-            onChange={(event) => setPenaltyType(event.target.value)}
+            onChange={(val) => setPenaltyType(val)}
             disabled={winner === 'none'}
-          >
-            <option value="none">{PENALTY_LABELS.none}</option>
-            <option value="warning">{PENALTY_LABELS.warning}</option>
-            <option value="suspension">{PENALTY_LABELS.suspension}</option>
-            <option value="ban">{PENALTY_LABELS.ban}</option>
-          </select>
+            options={[
+              { value: 'none', label: PENALTY_LABELS.none },
+              { value: 'warning', label: PENALTY_LABELS.warning },
+              { value: 'suspension', label: PENALTY_LABELS.suspension },
+              { value: 'ban', label: PENALTY_LABELS.ban },
+            ]}
+            ariaLabel="Chế tài"
+          />
         </div>
 
         <div className="col-md-4">
           <label className="form-label admin-dispute-form-label">Người bị xử lý</label>
-          <select
-            className="form-select"
+          <CustomSelect
             value={penalizeUserId}
-            onChange={(event) => setPenalizeUserId(event.target.value)}
+            onChange={(val) => setPenalizeUserId(val)}
             disabled={winner === 'none' || penaltyType === 'none'}
-          >
-            <option value="">Không chọn</option>
-            {getId(renter) && <option value={getId(renter)}>Người thuê: {getName(renter)}</option>}
-            {getId(owner) && <option value={getId(owner)}>Chủ đồ: {getName(owner)}</option>}
-          </select>
+            placeholder="Không chọn"
+            options={[
+              { value: '', label: 'Không chọn' },
+              ...(getId(renter) ? [{ value: getId(renter), label: `Người thuê: ${getName(renter)}` }] : []),
+              ...(getId(owner) ? [{ value: getId(owner), label: `Chủ đồ: ${getName(owner)}` }] : []),
+            ]}
+            ariaLabel="Người bị xử lý"
+          />
         </div>
       </div>
 

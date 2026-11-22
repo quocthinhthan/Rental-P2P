@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Swal from 'sweetalert2';
 import AdminHero from '../components/Admin/AdminHero';
 import Spinner from '../components/Common/Spinner';
+import CustomSelect from '../components/Common/CustomSelect';
 import {
   getAdminUsers,
   getAdminUserDetail,
@@ -38,6 +39,56 @@ const ACTION_MAP = {
   'admin.item_report.resolve': 'Xử lý báo cáo sản phẩm',
   'admin.dispute.resolve': 'Giải quyết tranh chấp'
 };
+
+const ROLE_FILTER_OPTIONS = [
+  { value: 'all', label: 'Tất cả vai trò' },
+  { value: 'user', label: 'Thành viên (User)' },
+  { value: 'admin', label: 'Quản trị viên (Admin)' },
+];
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'Tất cả trạng thái' },
+  { value: 'active', label: 'Hoạt động' },
+  { value: 'suspended', label: 'Tạm đình chỉ (Suspended)' },
+  { value: 'banned', label: 'Bị cấm (Banned)' },
+];
+
+const EKYC_FILTER_OPTIONS = [
+  { value: 'all', label: 'Tất cả eKYC' },
+  { value: 'unverified', label: 'Chưa liên kết' },
+  { value: 'pending', label: 'Đang chờ' },
+  { value: 'verified', label: 'Đã xác thực' },
+  { value: 'rejected', label: 'Bị từ chối' },
+];
+
+const USER_SORT_OPTIONS = [
+  { value: 'createdAt-desc', label: 'Mới tham gia' },
+  { value: 'createdAt-asc', label: 'Tham gia lâu nhất' },
+  { value: 'trustScore-desc', label: 'Điểm uy tín cao nhất' },
+  { value: 'trustScore-asc', label: 'Điểm uy tín thấp nhất' },
+  { value: 'averageRating-desc', label: 'Đánh giá tốt nhất' },
+];
+
+const AUDIT_ACTION_OPTIONS = [
+  { value: '', label: 'Tất cả hành động' },
+  ...Object.entries(ACTION_MAP).map(([key, value]) => ({ value: key, label: value })),
+];
+
+const AUDIT_TARGET_OPTIONS = [
+  { value: '', label: 'Tất cả đối tượng' },
+  { value: 'User', label: 'Thành viên (User)' },
+  { value: 'Item', label: 'Sản phẩm (Item)' },
+  { value: 'ItemReport', label: 'Báo cáo vi phạm (ItemReport)' },
+  { value: 'Dispute', label: 'Tranh chấp (Dispute)' },
+];
+
+const SUSPEND_DURATION_OPTIONS = [
+  { value: 'unban', label: 'Mở khóa tài khoản (Hoạt động)' },
+  { value: 'temp_3', label: 'Tạm khóa 3 ngày' },
+  { value: 'temp_7', label: 'Tạm khóa 7 ngày' },
+  { value: 'temp_30', label: 'Tạm khóa 30 ngày' },
+  { value: 'permanent', label: 'Khóa vĩnh viễn (Cấm)' },
+];
 
 export default function AdminUsersPage() {
   const [activeTab, setActiveTab] = useState('users'); // 'users' | 'audit'
@@ -271,76 +322,52 @@ export default function AdminUsersPage() {
 
               <div className="aup-field">
                 <label className="aup-label">Vai trò</label>
-                <div className="aup-select-wrap">
-                  <select
-                    className="aup-select"
-                    value={userFilters.role}
-                    onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value, page: 1 })}
-                  >
-                    <option value="all">Tất cả vai trò</option>
-                    <option value="user">Thành viên (User)</option>
-                    <option value="admin">Quản trị viên (Admin)</option>
-                  </select>
-                  <i className="fas fa-chevron-down aup-select-icon"></i>
-                </div>
+                <CustomSelect
+                  variant="compact"
+                  value={userFilters.role}
+                  onChange={(val) => setUserFilters({ ...userFilters, role: val, page: 1 })}
+                  options={ROLE_FILTER_OPTIONS}
+                  ariaLabel="Lọc theo vai trò"
+                />
               </div>
 
               <div className="aup-field">
                 <label className="aup-label">Trạng thái tài khoản</label>
-                <div className="aup-select-wrap">
-                  <select
-                    className="aup-select"
-                    value={userFilters.status}
-                    onChange={(e) => setUserFilters({ ...userFilters, status: e.target.value, page: 1 })}
-                  >
-                    <option value="all">Tất cả trạng thái</option>
-                    <option value="active">Hoạt động</option>
-                    <option value="suspended">Tạm đình chỉ (Suspended)</option>
-                    <option value="banned">Bị cấm (Banned)</option>
-                  </select>
-                  <i className="fas fa-chevron-down aup-select-icon"></i>
-                </div>
+                <CustomSelect
+                  variant="compact"
+                  value={userFilters.status}
+                  onChange={(val) => setUserFilters({ ...userFilters, status: val, page: 1 })}
+                  options={STATUS_FILTER_OPTIONS}
+                  ariaLabel="Lọc theo trạng thái tài khoản"
+                />
               </div>
 
               <div className="aup-field">
                 <label className="aup-label">Xác thực eKYC</label>
-                <div className="aup-select-wrap">
-                  <select
-                    className="aup-select"
-                    value={userFilters.ekycStatus}
-                    onChange={(e) => setUserFilters({ ...userFilters, ekycStatus: e.target.value, page: 1 })}
-                  >
-                    <option value="all">Tất cả eKYC</option>
-                    <option value="unverified">Chưa liên kết</option>
-                    <option value="pending">Đang chờ</option>
-                    <option value="verified">Đã xác thực</option>
-                    <option value="rejected">Bị từ chối</option>
-                  </select>
-                  <i className="fas fa-chevron-down aup-select-icon"></i>
-                </div>
+                <CustomSelect
+                  variant="compact"
+                  value={userFilters.ekycStatus}
+                  onChange={(val) => setUserFilters({ ...userFilters, ekycStatus: val, page: 1 })}
+                  options={EKYC_FILTER_OPTIONS}
+                  ariaLabel="Lọc theo trạng thái eKYC"
+                />
               </div>
             </div>
             
             <div className="aup-filter-actions">
               <div className="aup-field">
                 <label className="aup-label">Sắp xếp</label>
-                <div className="aup-select-wrap aup-sort-select">
-                  <select
-                    className="aup-select"
-                    value={`${userFilters.sortBy}-${userFilters.sortOrder}`}
-                    onChange={(e) => {
-                      const [sortBy, sortOrder] = e.target.value.split('-');
-                      setUserFilters({ ...userFilters, sortBy, sortOrder, page: 1 });
-                    }}
-                  >
-                    <option value="createdAt-desc">Mới tham gia</option>
-                    <option value="createdAt-asc">Tham gia lâu nhất</option>
-                    <option value="trustScore-desc">Điểm uy tín cao nhất</option>
-                    <option value="trustScore-asc">Điểm uy tín thấp nhất</option>
-                    <option value="averageRating-desc">Đánh giá tốt nhất</option>
-                  </select>
-                  <i className="fas fa-chevron-down aup-select-icon"></i>
-                </div>
+                <CustomSelect
+                  variant="compact"
+                  className="aup-sort-select"
+                  value={`${userFilters.sortBy}-${userFilters.sortOrder}`}
+                  onChange={(val) => {
+                    const [sortBy, sortOrder] = val.split('-');
+                    setUserFilters({ ...userFilters, sortBy, sortOrder, page: 1 });
+                  }}
+                  options={USER_SORT_OPTIONS}
+                  ariaLabel="Sắp xếp người dùng"
+                />
               </div>
               
               <button
@@ -522,37 +549,24 @@ export default function AdminUsersPage() {
 
               <div className="aup-field">
                 <label className="aup-label">Loại hành động</label>
-                <div className="aup-select-wrap">
-                  <select
-                    className="aup-select"
-                    value={auditFilters.action}
-                    onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value, page: 1 })}
-                  >
-                    <option value="">Tất cả hành động</option>
-                    {Object.entries(ACTION_MAP).map(([key, value]) => (
-                      <option key={key} value={key}>{value}</option>
-                    ))}
-                  </select>
-                  <i className="fas fa-chevron-down aup-select-icon"></i>
-                </div>
+                <CustomSelect
+                  variant="compact"
+                  value={auditFilters.action}
+                  onChange={(val) => setAuditFilters({ ...auditFilters, action: val, page: 1 })}
+                  options={AUDIT_ACTION_OPTIONS}
+                  ariaLabel="Lọc theo loại hành động"
+                />
               </div>
 
               <div className="aup-field">
                 <label className="aup-label">Đối tượng tác động</label>
-                <div className="aup-select-wrap">
-                  <select
-                    className="aup-select"
-                    value={auditFilters.targetType}
-                    onChange={(e) => setAuditFilters({ ...auditFilters, targetType: e.target.value, page: 1 })}
-                  >
-                    <option value="">Tất cả đối tượng</option>
-                    <option value="User">Thành viên (User)</option>
-                    <option value="Item">Sản phẩm (Item)</option>
-                    <option value="ItemReport">Báo cáo vi phạm (ItemReport)</option>
-                    <option value="Dispute">Tranh chấp (Dispute)</option>
-                  </select>
-                  <i className="fas fa-chevron-down aup-select-icon"></i>
-                </div>
+                <CustomSelect
+                  variant="compact"
+                  value={auditFilters.targetType}
+                  onChange={(val) => setAuditFilters({ ...auditFilters, targetType: val, page: 1 })}
+                  options={AUDIT_TARGET_OPTIONS}
+                  ariaLabel="Lọc theo đối tượng tác động"
+                />
               </div>
             </div>
           </section>
@@ -817,20 +831,13 @@ export default function AdminUsersPage() {
                           <div className="col-md-5">
                             <div className="aup-field mb-0">
                               <label className="aup-label">Thời gian đình chỉ</label>
-                              <div className="aup-select-wrap">
-                                <select
-                                  className="aup-select"
-                                  value={suspendDuration}
-                                  onChange={(e) => setSuspendDuration(e.target.value)}
-                                >
-                                  <option value="unban">Mở khóa tài khoản (Hoạt động)</option>
-                                  <option value="temp_3">Tạm khóa 3 ngày</option>
-                                  <option value="temp_7">Tạm khóa 7 ngày</option>
-                                  <option value="temp_30">Tạm khóa 30 ngày</option>
-                                  <option value="permanent">Khóa vĩnh viễn (Cấm)</option>
-                                </select>
-                                <i className="fas fa-chevron-down aup-select-icon"></i>
-                              </div>
+                              <CustomSelect
+                                variant="compact"
+                                value={suspendDuration}
+                                onChange={(val) => setSuspendDuration(val)}
+                                options={SUSPEND_DURATION_OPTIONS}
+                                ariaLabel="Thời gian đình chỉ"
+                              />
                             </div>
                           </div>
                           

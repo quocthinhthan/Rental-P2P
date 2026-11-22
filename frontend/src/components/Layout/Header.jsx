@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import apiService from '../../services/api';
+import CustomSelect from '../Common/CustomSelect';
 // Import file layout.css
 import '../../styles/layout.css';
 
@@ -15,14 +16,24 @@ function Header() {
   const [categories, setCategories] = useState([]);
   const [rentalBadgeCount, setRentalBadgeCount] = useState(0);
 
-  // Thêm useState này vào phần đầu component Header
-  const [isCatOpen, setIsCatOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileCatOpen, setIsMobileCatOpen] = useState(false);
+  const [isMobileSupportOpen, setIsMobileSupportOpen] = useState(false);
 
-  // Hàm chọn danh mục
-  const selectCategory = (catName) => {
-    setSelectedCategory(catName);
-    setIsCatOpen(false);
-  };
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả danh mục' },
+      ...categories.map((cat) => ({ value: cat, label: cat })),
+    ],
+    [categories]
+  );
+
+  // Tự động đóng menu mobile & dropdown khi chuyển trang
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+    setIsMobileCatOpen(false);
+    setIsMobileSupportOpen(false);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -145,38 +156,18 @@ function Header() {
 
                 <div className="search-divider"></div>
 
-                {/* Custom Category Dropdown trong Search Bar */}
-                <div className="position-relative d-flex align-items-center">
-                  <div
-                    className="custom-inner-select d-flex align-items-center justify-content-between px-3"
-                    onClick={() => setIsCatOpen(!isCatOpen)}
-                  >
-                    <span className="text-truncate" style={{ maxWidth: '120px' }}>
-                      {selectedCategory || 'Tất cả'}
-                    </span>
-                    <i className={`fas fa-chevron-down ms-2 transition-icon ${isCatOpen ? 'rotate-180' : ''}`}></i>
-                  </div>
-
-                  {/* Menu danh sách hiện ra khi click */}
-                  {isCatOpen && (
-                    <div className="custom-inner-dropdown-menu shadow-lg">
-                      <div
-                        className="inner-dropdown-item"
-                        onClick={() => selectCategory('')}
-                      >
-                        Tất cả danh mục
-                      </div>
-                      {categories.map((cat) => (
-                        <div
-                          key={cat}
-                          className="inner-dropdown-item"
-                          onClick={() => selectCategory(cat)}
-                        >
-                          {cat}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                {/* Shared CustomSelect trong Search Bar */}
+                <div className="d-flex align-items-center">
+                  <CustomSelect
+                    variant="pill"
+                    align="right"
+                    menuMinWidth={210}
+                    value={selectedCategory}
+                    onChange={(val) => setSelectedCategory(val)}
+                    options={categoryOptions}
+                    placeholder="Tất cả"
+                    ariaLabel="Chọn danh mục tìm kiếm"
+                  />
                 </div>
 
                 <button type="submit" className="btn btn-primary search-btn px-3 ms-2">
@@ -260,62 +251,90 @@ function Header() {
               <div className="dropdown-menu dropdown-menu-end custom-dropdown-menu mt-2">
                 {isLoggedIn && user ? (
                   <>
-                    <div className="dropdown-header">
-                      <p className="mb-0 text-muted fs-7">Xin chào,</p>
-                      <h6 className="mb-0 text-dark fw-bold">{user.fullName}</h6>
+                    <div className="dropdown-header dropdown-user-header">
+                      <div className="dropdown-user-avatar">
+                        {user.avatarUrl ? (
+                          <img src={user.avatarUrl} alt={user.fullName} />
+                        ) : (
+                          <i className="fas fa-user"></i>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-grow-1">
+                        <p className="mb-0 text-muted fs-7">Xin chào,</p>
+                        <div className="d-flex align-items-center gap-2">
+                          <h6 className="mb-0 text-dark fw-bold text-truncate">{user.fullName}</h6>
+                          {user.role === 'admin' && (
+                            <span className="dropdown-admin-badge">Admin</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
+
                     <hr className="dropdown-divider mx-3 my-2" />
+                    <div className="dropdown-section-label">Hoạt động thuê &amp; cho thuê</div>
                     <Link to="/my-rentals" className="dropdown-item custom-dropdown-item">
-                      <i className="fas fa-clipboard-list me-2 item-icon"></i>Quản lý đơn thuê
-                    </Link>
-                    <Link to="/financial-dashboard" className="dropdown-item custom-dropdown-item">
-                      <i className="fas fa-wallet me-2 item-icon text-success"></i>Quản lý tài chính / Doanh thu
-                    </Link>
-                    <Link to="/favorites" className="dropdown-item custom-dropdown-item">
-                      <i className="fas fa-heart me-2 item-icon text-danger"></i>Sản phẩm yêu thích
-                    </Link>
-                    <Link to="/account" className="dropdown-item custom-dropdown-item">
-                      <i className="fas fa-user-cog me-2 item-icon"></i>Tài khoản của tôi
+                      <i className="fas fa-clipboard-list me-2 item-icon text-primary"></i>
+                      <span className="flex-grow-1">Quản lý đơn thuê</span>
+                      {rentalBadgeCount > 0 && (
+                        <span className="badge rounded-pill bg-danger ms-2">{rentalBadgeCount}</span>
+                      )}
                     </Link>
                     <Link to="/post-item" className="dropdown-item custom-dropdown-item">
-                      <i className="fas fa-plus-circle me-2 item-icon"></i>Đăng đồ cho thuê
+                      <i className="fas fa-plus-circle me-2 item-icon text-warning"></i>
+                      <span>Đăng đồ cho thuê</span>
                     </Link>
-                    {user && user.role === 'admin' && (
+                    <Link to="/financial-dashboard" className="dropdown-item custom-dropdown-item">
+                      <i className="fas fa-wallet me-2 item-icon text-success"></i>
+                      <span>Tài chính &amp; Doanh thu</span>
+                    </Link>
+
+                    <hr className="dropdown-divider mx-3 my-2" />
+                    <div className="dropdown-section-label">Cá nhân</div>
+                    <Link to="/favorites" className="dropdown-item custom-dropdown-item">
+                      <i className="fas fa-heart me-2 item-icon text-danger"></i>
+                      <span>Sản phẩm yêu thích</span>
+                    </Link>
+                    <Link to="/account" className="dropdown-item custom-dropdown-item">
+                      <i className="fas fa-user-cog me-2 item-icon"></i>
+                      <span>Tài khoản của tôi</span>
+                    </Link>
+
+                    {user.role === 'admin' && (
                       <>
-                        <li><hr className="dropdown-divider" /></li>
-                        <li>
-                          <Link to="/admin/dashboard" className="custom-dropdown-item">
-                            <i className="fas fa-chart-line me-2 item-icon"></i>
-                            Tổng quan admin
-                          </Link>
-                        </li>
-                        <li>
-                          <Link to="/admin/items" className="custom-dropdown-item">
-                            <i className="fas fa-boxes me-2 item-icon"></i>
-                            Quản lý sản phẩm
-                          </Link>
-                        </li>
-                        <li>
-                          <Link to="/admin/item-reports" className="custom-dropdown-item">
-                            <i className="fas fa-flag me-2 item-icon"></i>
-                            Báo cáo sản phẩm
-                          </Link>
-                        </li>
-                        <li>
-                          <Link to="/admin/disputes" className="custom-dropdown-item">
-                            <i className="fas fa-gavel me-2 item-icon"></i>
-                            Xử lý tranh chấp
-                          </Link>
-                        </li>
+                        <hr className="dropdown-divider mx-3 my-2" />
+                        <div className="dropdown-section-label">Quản trị hệ thống</div>
+                        <Link to="/admin/dashboard" className="dropdown-item custom-dropdown-item">
+                          <i className="fas fa-chart-line me-2 item-icon"></i>
+                          <span>Tổng quan admin</span>
+                        </Link>
+                        <Link to="/admin/users" className="dropdown-item custom-dropdown-item">
+                          <i className="fas fa-users me-2 item-icon"></i>
+                          <span>Quản lý người dùng</span>
+                        </Link>
+                        <Link to="/admin/items" className="dropdown-item custom-dropdown-item">
+                          <i className="fas fa-boxes me-2 item-icon"></i>
+                          <span>Quản lý sản phẩm</span>
+                        </Link>
+                        <Link to="/admin/item-reports" className="dropdown-item custom-dropdown-item">
+                          <i className="fas fa-flag me-2 item-icon"></i>
+                          <span>Báo cáo sản phẩm</span>
+                        </Link>
+                        <Link to="/admin/disputes" className="dropdown-item custom-dropdown-item">
+                          <i className="fas fa-gavel me-2 item-icon"></i>
+                          <span>Xử lý tranh chấp</span>
+                        </Link>
                       </>
                     )}
+
                     <hr className="dropdown-divider mx-3 my-2" />
                     <button onClick={handleLogout} className="dropdown-item custom-dropdown-item text-danger logout-btn">
-                      <i className="fas fa-sign-out-alt me-2 item-icon"></i>Đăng xuất
+                      <i className="fas fa-sign-out-alt me-2 item-icon"></i>
+                      <span>Đăng xuất</span>
                     </button>
                   </>
                 ) : (
                   <>
+                    <div className="dropdown-section-label">Tài khoản</div>
                     <Link to="/login" className="dropdown-item custom-dropdown-item">
                       <i className="fas fa-sign-in-alt me-2 item-icon"></i>Đăng nhập
                     </Link>
@@ -334,7 +353,7 @@ function Header() {
 
       {/* Navbar Start */}
       <div className="container-fluid nav-bar p-0">
-        <div className="row gx-0 bg-primary px-5 align-items-center">
+        <div className="row gx-0 bg-primary px-3 px-lg-5 align-items-center">
 
           {/* Cột Danh Mục (Categories) */}
           <div className="col-lg-3 d-none d-lg-block">
@@ -385,18 +404,67 @@ function Header() {
 
           {/* Cột Menu Chính */}
           <div className="col-12 col-lg-9">
-            <nav className="navbar navbar-expand-lg navbar-dark bg-primary py-lg-0 p-3 p-lg-0">
-              <Link to="/" className="navbar-brand d-block d-lg-none">
-                <h1 className="display-5 text-white m-0">
-                  <i className="fas fa-sync-alt text-white me-2"></i>RentalP2P
-                </h1>
+            <nav className="navbar navbar-expand-lg navbar-dark bg-primary py-2 py-lg-0 px-0">
+              <Link to="/" className="navbar-brand d-flex d-lg-none align-items-center m-0 mobile-brand-logo">
+                <i className="fas fa-sync-alt text-white me-2"></i>
+                <span>RentalP2P</span>
               </Link>
 
-              <button className="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse">
-                <span className="fa fa-bars fa-1x text-white"></span>
-              </button>
+              {/* Mobile Quick Actions (Login / Rentals / Account + Menu Toggle) */}
+              <div className="d-flex d-lg-none align-items-center gap-2 ms-auto mobile-header-actions">
+                {isLoggedIn && user ? (
+                  <>
+                    <Link
+                      to="/favorites"
+                      className="mobile-icon-btn"
+                      title="Sản phẩm yêu thích"
+                      aria-label="Sản phẩm yêu thích"
+                    >
+                      <i className="fas fa-heart"></i>
+                    </Link>
+                    <Link
+                      to="/my-rentals"
+                      className="mobile-icon-btn position-relative"
+                      title="Quản lý đơn thuê"
+                      aria-label="Quản lý đơn thuê"
+                    >
+                      <i className="fas fa-shopping-cart"></i>
+                      {rentalBadgeCount > 0 && (
+                        <span className="mobile-icon-badge">{rentalBadgeCount}</span>
+                      )}
+                    </Link>
+                    <Link
+                      to="/account"
+                      className="mobile-avatar-btn"
+                      title={user.fullName || 'Tài khoản'}
+                      aria-label="Tài khoản của tôi"
+                    >
+                      {user.avatarUrl ? (
+                        <img src={user.avatarUrl} alt={user.fullName} />
+                      ) : (
+                        <i className="fas fa-user"></i>
+                      )}
+                    </Link>
+                  </>
+                ) : (
+                  <Link to="/login" className="btn mobile-login-pill">
+                    <i className="fas fa-sign-in-alt me-1"></i>Đăng nhập
+                  </Link>
+                )}
 
-              <div className="collapse navbar-collapse" id="navbarCollapse">
+                <button
+                  className="navbar-toggler mobile-menu-toggle"
+                  type="button"
+                  onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+                  aria-controls="navbarCollapse"
+                  aria-expanded={isMobileMenuOpen}
+                  aria-label="Mở menu điều hướng"
+                >
+                  <span className={`fas ${isMobileMenuOpen ? 'fa-times' : 'fa-bars'} text-white`}></span>
+                </button>
+              </div>
+
+              <div className={`collapse navbar-collapse ${isMobileMenuOpen ? 'show' : ''}`} id="navbarCollapse">
                 {/* Dùng ms-auto để căn phải như template */}
                 <div className="navbar-nav ms-auto py-0 font-weight-bold">
                   <Link to="/" className={`nav-item nav-link ${location.pathname === '/' ? 'active' : ''}`}>Trang chủ</Link>
@@ -404,16 +472,17 @@ function Header() {
                   <Link to="/about" className={`nav-item nav-link ${location.pathname === '/about' ? 'active' : ''}`}>Về chúng tôi</Link>
 
                   {/* Dropdown cho các trang phụ */}
-                  <div className="nav-item dropdown">
+                  <div className={`nav-item dropdown ${isMobileSupportOpen ? 'show' : ''}`}>
                     <span
                       className={`nav-link dropdown-toggle ${['/help', '/faq'].some(p => location.pathname.startsWith(p)) ? 'active' : ''}`}
-                      data-bs-toggle="dropdown"
                       role="button"
+                      aria-expanded={isMobileSupportOpen}
+                      onClick={() => setIsMobileSupportOpen((prev) => !prev)}
                       style={{ cursor: 'pointer' }}
                     >
                       Hỗ trợ
                     </span>
-                    <div className="dropdown-menu m-0">
+                    <div className={`dropdown-menu m-0 ${isMobileSupportOpen ? 'show' : ''}`}>
                       <Link to="/help" className={`dropdown-item ${location.pathname === '/help' ? 'active' : ''}`}>
                         <i className="fas fa-life-ring me-2" />Trung tâm trợ giúp
                       </Link>
@@ -423,7 +492,136 @@ function Header() {
                     </div>
                   </div>
 
-                  <Link to="/contact" className={`nav-item nav-link me-2 ${location.pathname === '/contact' ? 'active' : ''}`}>Liên hệ</Link>
+                  <Link to="/contact" className={`nav-item nav-link me-lg-2 ${location.pathname === '/contact' ? 'active' : ''}`}>Liên hệ</Link>
+                </div>
+
+                {/* Mobile-only: Danh mục sản phẩm */}
+                {categories.length > 0 && (
+                  <div className="d-lg-none mobile-nav-section">
+                    <button
+                      type="button"
+                      className="mobile-cat-toggle"
+                      onClick={() => setIsMobileCatOpen((prev) => !prev)}
+                      aria-expanded={isMobileCatOpen}
+                    >
+                      <span><i className="fas fa-th-large me-2"></i>Danh mục sản phẩm</span>
+                      <i className={`fas fa-chevron-down transition-icon ${isMobileCatOpen ? 'rotate-180' : ''}`}></i>
+                    </button>
+                    {isMobileCatOpen && (
+                      <div className="mobile-cat-chips">
+                        <Link to="/shop" className="mobile-cat-chip">Tất cả</Link>
+                        {categories.map((cat) => (
+                          <Link
+                            key={cat}
+                            to={`/shop?category=${encodeURIComponent(cat)}`}
+                            className="mobile-cat-chip"
+                          >
+                            {cat}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Mobile-only: Tài khoản & Đăng nhập / Đăng ký */}
+                <div className="d-lg-none mobile-auth-section">
+                  {isLoggedIn && user ? (
+                    <div className="mobile-auth-card">
+                      <div className="mobile-auth-user">
+                        <div className="mobile-auth-user-avatar">
+                          {user.avatarUrl ? (
+                            <img src={user.avatarUrl} alt={user.fullName} />
+                          ) : (
+                            <i className="fas fa-user"></i>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <small>Xin chào,</small>
+                          <div className="mobile-auth-user-name text-truncate">{user.fullName}</div>
+                        </div>
+                      </div>
+
+                      <div className="mobile-account-group">
+                        <div className="mobile-admin-label">Hoạt động thuê &amp; cho thuê</div>
+                        <div className="mobile-account-grid">
+                          <Link to="/my-rentals" className="mobile-account-link">
+                            <i className="fas fa-clipboard-list"></i>
+                            <span>Đơn thuê</span>
+                            {rentalBadgeCount > 0 && (
+                              <span className="badge rounded-pill bg-danger ms-auto">{rentalBadgeCount}</span>
+                            )}
+                          </Link>
+                          <Link to="/post-item" className="mobile-account-link">
+                            <i className="fas fa-plus-circle"></i>
+                            <span>Đăng đồ</span>
+                          </Link>
+                          <Link to="/financial-dashboard" className="mobile-account-link mobile-account-link--wide">
+                            <i className="fas fa-wallet"></i>
+                            <span>Tài chính &amp; Doanh thu</span>
+                          </Link>
+                        </div>
+                      </div>
+
+                      <div className="mobile-admin-links">
+                        <div className="mobile-admin-label">Cá nhân</div>
+                        <div className="mobile-account-grid">
+                          <Link to="/favorites" className="mobile-account-link">
+                            <i className="fas fa-heart"></i>
+                            <span>Yêu thích</span>
+                          </Link>
+                          <Link to="/account" className="mobile-account-link">
+                            <i className="fas fa-user-cog"></i>
+                            <span>Tài khoản</span>
+                          </Link>
+                        </div>
+                      </div>
+
+                      {user.role === 'admin' && (
+                        <div className="mobile-admin-links">
+                          <div className="mobile-admin-label">Quản trị hệ thống</div>
+                          <div className="mobile-account-grid">
+                            <Link to="/admin/dashboard" className="mobile-account-link">
+                              <i className="fas fa-chart-line"></i>
+                              <span>Tổng quan</span>
+                            </Link>
+                            <Link to="/admin/users" className="mobile-account-link">
+                              <i className="fas fa-users"></i>
+                              <span>Người dùng</span>
+                            </Link>
+                            <Link to="/admin/items" className="mobile-account-link">
+                              <i className="fas fa-boxes"></i>
+                              <span>Sản phẩm</span>
+                            </Link>
+                            <Link to="/admin/item-reports" className="mobile-account-link">
+                              <i className="fas fa-flag"></i>
+                              <span>Báo cáo</span>
+                            </Link>
+                            <Link to="/admin/disputes" className="mobile-account-link mobile-account-link--wide">
+                              <i className="fas fa-gavel"></i>
+                              <span>Xử lý tranh chấp</span>
+                            </Link>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mobile-admin-links">
+                        <button type="button" onClick={handleLogout} className="mobile-account-link mobile-logout-link">
+                          <i className="fas fa-sign-out-alt"></i>
+                          <span>Đăng xuất</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mobile-guest-actions">
+                      <Link to="/login" className="btn mobile-guest-login-btn">
+                        <i className="fas fa-sign-in-alt me-2"></i>Đăng nhập
+                      </Link>
+                      <Link to="/register" className="btn mobile-guest-register-btn">
+                        <i className="fas fa-user-plus me-2"></i>Đăng ký
+                      </Link>
+                    </div>
+                  )}
                 </div>
 
                 {/* Nút Hotline CSKH hỗ trợ bên phải */}
@@ -445,6 +643,35 @@ function Header() {
         </div>
       </div>
       {/* Navbar End */}
+
+      {/* Mobile Search & Nearby Bar (hidden on desktop >= 992px) */}
+      <div className="container-fluid d-lg-none mobile-search-strip bg-white border-bottom shadow-sm py-2 px-3">
+        <div className="mobile-search-cluster">
+          <form className="mobile-search-form" onSubmit={handleSearch}>
+            <i className="fas fa-search mobile-search-icon"></i>
+            <input
+              type="text"
+              className="form-control border-0 bg-transparent shadow-none mobile-search-input"
+              placeholder="Tìm sản phẩm cho thuê..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <button type="submit" className="btn btn-primary mobile-search-submit" aria-label="Tìm kiếm">
+              <i className="fas fa-search"></i>
+            </button>
+          </form>
+          <button
+            type="button"
+            className="btn mobile-location-btn"
+            onClick={handleOpenLocationPicker}
+            title="Tìm đồ quanh đây"
+            aria-label="Tìm đồ quanh đây"
+          >
+            <i className="fas fa-location-arrow"></i>
+            <span className="d-none d-sm-inline">Quanh đây</span>
+          </button>
+        </div>
+      </div>
     </>
   );
 }

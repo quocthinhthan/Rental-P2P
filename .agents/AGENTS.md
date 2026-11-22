@@ -62,7 +62,7 @@ Mounted backend API groups in `server.js`:
 - `frontend/src/components/`: reusable UI grouped by domain:
   - `Layout`: header/footer.
   - `Auth`: protected route.
-  - `Common`: spinner and location picker.
+  - `Common`: spinner, location picker, and shared `CustomSelect` dropdown component (use `CustomSelect` instead of native `<select>` across web UI).
   - `Items`: item card/list/report modal.
   - `Rentals`: contract, signature, handover (`HandoverModal.jsx` — bidirectional review/edit/approve), chat panels, dispute (`DisputeModal.jsx` — image upload, reason dropdown).
   - `Admin`: admin nav/hero/dispute resolution form.

@@ -44,7 +44,28 @@
     background-color: #f8f9fa !important;
 }
 
+.react-datepicker-wrapper {
+    width: 100%;
+    display: block;
+}
+
 .react-datepicker__day--disabled:hover {
     background-color: #f8f9fa !important;
     border-radius: 0 !important;
+}
+
+@media (max-width: 575.98px) {
+    .react-datepicker-popper {
+        max-width: calc(100vw - 24px);
+    }
+
+    .react-datepicker {
+        max-width: 100%;
+        font-size: 0.82rem;
+    }
+
+    .custom-date-input {
+        padding: 10px 40px 10px 14px !important;
+        font-size: 0.88rem;
+    }
 }

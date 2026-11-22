@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import apiService from '../../services/api';
+import CustomSelect from '../Common/CustomSelect';
 import './ReportItemModal.css';
 
 const REPORT_REASONS = [
@@ -170,18 +171,13 @@ function ReportItemModal({ isOpen, itemId, onClose, onSuccess }) {
           {/* Chọn loại vi phạm */}
           <div className="report-form-group">
             <label className="report-form-label">Loại vi phạm <sup>*</sup></label>
-            <select
-              className="form-select report-select"
+            <CustomSelect
               value={reasonCategory}
-              onChange={(e) => setReasonCategory(e.target.value)}
+              onChange={(val) => setReasonCategory(val)}
+              options={REPORT_REASONS}
               disabled={submitting}
-            >
-              {REPORT_REASONS.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
+              ariaLabel="Loại vi phạm"
+            />
           </div>
 
           {/* Mô tả lý do chi tiết */}

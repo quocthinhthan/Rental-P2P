@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import ItemCard from '../components/Items/ItemCard';
+import CustomSelect from '../components/Common/CustomSelect';
 import apiService from '../services/api';
 // Import file CSS riêng
 import '../styles/ShopPage.css';
@@ -21,8 +22,25 @@ function ShopPage() {
     return Number.isFinite(lat) && Number.isFinite(lng) && hasRadius ? { lat, lng } : null;
   });
   const [radius, setRadius] = useState(searchParams.get('radius') || '');
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [isFeaturedOnly, setIsFeaturedOnly] = useState(false);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả danh mục' },
+      ...categories.map((cat) => ({ value: cat, label: cat })),
+    ],
+    [categories]
+  );
+
+  const pageSizeOptions = useMemo(
+    () => [
+      { value: 10, label: '10 / trang' },
+      { value: 20, label: '20 / trang' },
+      { value: 50, label: '50 / trang' },
+    ],
+    []
+  );
 
   // States for client-side pagination and item fetching
   const [items, setItems] = useState([]);
@@ -116,14 +134,8 @@ function ShopPage() {
     setOwnerId('');
     setNearbyLocation(null);
     setRadius('');
-    setIsCategoryOpen(false);
     setIsFeaturedOnly(false);
     setCurrentPage(1);
-  };
-
-  const handleCategorySelect = (catName) => {
-    setCategory(catName);
-    setIsCategoryOpen(false);
   };
 
   const handleFindNearby = () => {
@@ -178,7 +190,23 @@ function ShopPage() {
           
           {/* Sidebar - Bộ Lọc */}
           <div className="col-lg-3 col-md-12 wow fadeInUp" data-wow-delay="0.2s">
-            <div className="filter-sidebar">
+            <button
+              type="button"
+              className="btn w-100 d-flex d-lg-none align-items-center justify-content-between mobile-shop-filter-toggle mb-3"
+              onClick={() => setIsMobileFilterOpen((prev) => !prev)}
+              aria-expanded={isMobileFilterOpen}
+            >
+              <span className="d-flex align-items-center gap-2 fw-bold">
+                <i className="fas fa-sliders-h text-primary"></i>
+                Bộ lọc tìm kiếm
+                {hasActiveFilters && (
+                  <span className="badge rounded-pill bg-primary">Đang lọc</span>
+                )}
+              </span>
+              <i className={`fas fa-chevron-down transition-icon ${isMobileFilterOpen ? 'rotate-180' : ''}`}></i>
+            </button>
+
+            <div className={`filter-sidebar ${isMobileFilterOpen ? 'd-block' : 'd-none d-lg-block'}`}>
               <h4><i className="fas fa-sliders-h text-primary"></i> Bộ lọc tìm kiếm</h4>
 
               {/* Từ khóa */}
@@ -199,40 +227,15 @@ function ShopPage() {
               {/* Danh mục */}
               <div className="filter-group">
                 <label className="filter-label">Danh mục</label>
-                <div className="custom-input-wrapper shop-category-dropdown">
-                  <i className="fas fa-th-large"></i>
-                  <button
-                    type="button"
-                    className={`shop-category-toggle ${isCategoryOpen ? 'is-open' : ''}`}
-                    onClick={() => setIsCategoryOpen((open) => !open)}
-                    aria-expanded={isCategoryOpen}
-                  >
-                    <span className="text-truncate">{category || 'Tất cả danh mục'}</span>
-                    <i className={`fas fa-chevron-down ms-2 transition-icon ${isCategoryOpen ? 'rotate-180' : ''}`}></i>
-                  </button>
-
-                  {isCategoryOpen && (
-                    <div className="custom-inner-dropdown-menu shop-filter-category-menu shadow-lg">
-                      <button
-                        type="button"
-                        className={`inner-dropdown-item ${!category ? 'active' : ''}`}
-                        onClick={() => handleCategorySelect('')}
-                      >
-                        Tất cả danh mục
-                      </button>
-                      {categories.map((cat) => (
-                        <button
-                          key={cat}
-                          type="button"
-                          className={`inner-dropdown-item ${category === cat ? 'active' : ''}`}
-                          onClick={() => handleCategorySelect(cat)}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <CustomSelect
+                  variant="filter"
+                  icon="fas fa-th-large"
+                  value={category}
+                  onChange={(val) => setCategory(val)}
+                  options={categoryOptions}
+                  placeholder="Tất cả danh mục"
+                  ariaLabel="Chọn danh mục"
+                />
               </div>
 
               {/* Vị trí */}
@@ -331,7 +334,11 @@ function ShopPage() {
 
               {/* Nút hành động */}
               <div className="d-grid gap-2 mt-4 pt-2">
-                <button type="button" className="btn btn-primary btn-apply rounded-pill text-white" onClick={() => {}}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-apply rounded-pill text-white"
+                  onClick={() => setIsMobileFilterOpen(false)}
+                >
                   Áp dụng bộ lọc
                 </button>
                 {hasActiveFilters && (
@@ -392,18 +399,17 @@ function ShopPage() {
                 <div className="pagination-container d-flex align-items-center justify-content-between flex-wrap gap-3 mt-5">
                   <div className="d-flex align-items-center gap-3 flex-wrap text-muted small">
                     <span>Tổng số <strong>{items.length}</strong> sản phẩm</span>
-                    <select
-                      className="form-select form-select-sm shop-page-size-select cursor-pointer shadow-sm"
+                    <CustomSelect
+                      variant="compact"
                       value={pageSize}
-                      onChange={(e) => {
-                        setPageSize(Number(e.target.value));
+                      onChange={(val) => {
+                        setPageSize(Number(val));
                         setCurrentPage(1);
                       }}
-                    >
-                      <option value={10}>10 / trang</option>
-                      <option value={20}>20 / trang</option>
-                      <option value={50}>50 / trang</option>
-                    </select>
+                      options={pageSizeOptions}
+                      className="shop-page-size-wrapper"
+                      ariaLabel="Số sản phẩm mỗi trang"
+                    />
                   </div>
 
                   {/* Điều hướng trang */}

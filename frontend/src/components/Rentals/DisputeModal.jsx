@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import apiService from '../../services/api';
+import CustomSelect from '../Common/CustomSelect';
 import './DisputeModal.css';
 
 const DISPUTE_REASONS = [
@@ -169,18 +170,13 @@ function DisputeModal({ isOpen, rental, onClose, onSuccess }) {
           {/* Chọn loại sự cố */}
           <div className="dispute-form-group">
             <label className="dispute-form-label">Loại sự cố phát sinh <sup>*</sup></label>
-            <select
-              className="form-select dispute-select"
+            <CustomSelect
               value={reasonCategory}
-              onChange={(e) => setReasonCategory(e.target.value)}
+              onChange={(val) => setReasonCategory(val)}
+              options={DISPUTE_REASONS}
               disabled={submitting}
-            >
-              {DISPUTE_REASONS.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
+              ariaLabel="Loại sự cố phát sinh"
+            />
           </div>
 
           {/* Mô tả chi tiết */}

@@ -334,6 +334,10 @@
 }
 
 /* --- Page Size Dropdown Selector --- */
+.shop-page-size-wrapper {
+  width: 132px;
+}
+
 .shop-page-size-select {
   width: 130px !important;
   height: 38px !important;
@@ -385,5 +389,52 @@
   align-items: center !important;
   justify-content: center !important;
   padding: 0 !important;
+}
+
+/* Mobile Filter Toggle & Responsive Polish */
+.mobile-shop-filter-toggle {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 13px 18px;
+  color: #1e293b;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.mobile-shop-filter-toggle:hover,
+.mobile-shop-filter-toggle:focus {
+  border-color: #3b82f6;
+  background: #ffffff;
+  color: #1e293b;
+}
+
+@media (max-width: 767.98px) {
+  .filter-sidebar {
+    padding: 20px 18px;
+    border-radius: 18px;
+  }
+
+  .results-header {
+    padding: 16px 18px;
+    border-radius: 16px;
+    margin-bottom: 18px;
+  }
+
+  .pagination-container {
+    padding: 14px 16px;
+    border-radius: 16px;
+    margin-top: 24px;
+    justify-content: center !important;
+  }
+
+  .pagination-container nav {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .pagination-container .shop-pagination {
+    justify-content: center !important;
+  }
 }
 

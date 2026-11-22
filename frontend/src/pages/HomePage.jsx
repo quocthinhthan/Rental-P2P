@@ -220,70 +220,70 @@ function HomePage() {
       {/* Carousel End */}
 
       {/* Services Start */}
-      <div className="container-fluid px-0">
+      <div className="container-fluid px-0 homepage-services-strip">
         <div className="row g-0">
-          <div className="col-6 col-md-4 col-lg-2 border-start border-end wow fadeInUp" data-wow-delay="0.1s">
-            <div className="p-4">
-              <div className="d-inline-flex align-items-center">
+          <div className="col-6 col-md-4 col-lg-2 border-start border-end border-bottom wow fadeInUp" data-wow-delay="0.1s">
+            <div className="p-3 p-sm-4 homepage-service-cell">
+              <div className="d-flex flex-column flex-sm-row align-items-center text-center text-sm-start">
                 <i className="fa fa-sync-alt fa-2x text-primary"></i>
-                <div className="ms-4">
-                  <h6 className="text-uppercase mb-2">Minh bạch</h6>
-                  <p className="mb-0">Đánh giá từ cộng đồng</p>
+                <div className="mt-2 mt-sm-0 ms-sm-3 ms-lg-4">
+                  <h6 className="text-uppercase mb-1 mb-sm-2">Minh bạch</h6>
+                  <p className="mb-0 small">Đánh giá từ cộng đồng</p>
                 </div>
               </div>
             </div>
           </div>
-          <div className="col-6 col-md-4 col-lg-2 border-end wow fadeInUp" data-wow-delay="0.2s">
-            <div className="p-4">
-              <div className="d-flex align-items-center">
+          <div className="col-6 col-md-4 col-lg-2 border-end border-bottom wow fadeInUp" data-wow-delay="0.2s">
+            <div className="p-3 p-sm-4 homepage-service-cell">
+              <div className="d-flex flex-column flex-sm-row align-items-center text-center text-sm-start">
                 <i className="fab fa-telegram-plane fa-2x text-primary"></i>
-                <div className="ms-4">
-                  <h6 className="text-uppercase mb-2">An toàn</h6>
-                  <p className="mb-0">Xác thực người dùng</p>
+                <div className="mt-2 mt-sm-0 ms-sm-3 ms-lg-4">
+                  <h6 className="text-uppercase mb-1 mb-sm-2">An toàn</h6>
+                  <p className="mb-0 small">Xác thực người dùng</p>
                 </div>
               </div>
             </div>
           </div>
-          <div className="col-6 col-md-4 col-lg-2 border-end wow fadeInUp" data-wow-delay="0.3s">
-            <div className="p-4">
-              <div className="d-flex align-items-center">
+          <div className="col-6 col-md-4 col-lg-2 border-end border-bottom wow fadeInUp" data-wow-delay="0.3s">
+            <div className="p-3 p-sm-4 homepage-service-cell">
+              <div className="d-flex flex-column flex-sm-row align-items-center text-center text-sm-start">
                 <i className="fas fa-life-ring fa-2x text-primary"></i>
-                <div className="ms-4">
-                  <h6 className="text-uppercase mb-2">Hỗ trợ 24/7</h6>
-                  <p className="mb-0">Chúng tôi luôn ở đây</p>
+                <div className="mt-2 mt-sm-0 ms-sm-3 ms-lg-4">
+                  <h6 className="text-uppercase mb-1 mb-sm-2">Hỗ trợ 24/7</h6>
+                  <p className="mb-0 small">Chúng tôi luôn ở đây</p>
                 </div>
               </div>
             </div>
           </div>
-          <div className="col-6 col-md-4 col-lg-2 border-end wow fadeInUp" data-wow-delay="0.4s">
-            <div className="p-4">
-              <div className="d-flex align-items-center">
+          <div className="col-6 col-md-4 col-lg-2 border-end border-bottom wow fadeInUp" data-wow-delay="0.4s">
+            <div className="p-3 p-sm-4 homepage-service-cell">
+              <div className="d-flex flex-column flex-sm-row align-items-center text-center text-sm-start">
                 <i className="fas fa-credit-card fa-2x text-primary"></i>
-                <div className="ms-4">
-                  <h6 className="text-uppercase mb-2">Tiện lợi</h6>
-                  <p className="mb-0">Thanh toán an toàn</p>
+                <div className="mt-2 mt-sm-0 ms-sm-3 ms-lg-4">
+                  <h6 className="text-uppercase mb-1 mb-sm-2">Tiện lợi</h6>
+                  <p className="mb-0 small">Thanh toán an toàn</p>
                 </div>
               </div>
             </div>
           </div>
-          <div className="col-6 col-md-4 col-lg-2 border-end wow fadeInUp" data-wow-delay="0.5s">
-            <div className="p-4">
-              <div className="d-flex align-items-center">
+          <div className="col-6 col-md-4 col-lg-2 border-end border-bottom wow fadeInUp" data-wow-delay="0.5s">
+            <div className="p-3 p-sm-4 homepage-service-cell">
+              <div className="d-flex flex-column flex-sm-row align-items-center text-center text-sm-start">
                 <i className="fas fa-lock fa-2x text-primary"></i>
-                <div className="ms-4">
-                  <h6 className="text-uppercase mb-2">Bảo mật</h6>
-                  <p className="mb-0">Bảo mật thông tin của bạn</p>
+                <div className="mt-2 mt-sm-0 ms-sm-3 ms-lg-4">
+                  <h6 className="text-uppercase mb-1 mb-sm-2">Bảo mật</h6>
+                  <p className="mb-0 small">Bảo mật thông tin của bạn</p>
                 </div>
               </div>
             </div>
           </div>
-          <div className="col-6 col-md-4 col-lg-2 border-end wow fadeInUp" data-wow-delay="0.6s">
-            <div className="p-4">
-              <div className="d-flex align-items-center">
+          <div className="col-6 col-md-4 col-lg-2 border-end border-bottom wow fadeInUp" data-wow-delay="0.6s">
+            <div className="p-3 p-sm-4 homepage-service-cell">
+              <div className="d-flex flex-column flex-sm-row align-items-center text-center text-sm-start">
                 <i className="fas fa-blog fa-2x text-primary"></i>
-                <div className="ms-4">
-                  <h6 className="text-uppercase mb-2">Cộng đồng</h6>
-                  <p className="mb-0">Chia sẻ và kết nối</p>
+                <div className="mt-2 mt-sm-0 ms-sm-3 ms-lg-4">
+                  <h6 className="text-uppercase mb-1 mb-sm-2">Cộng đồng</h6>
+                  <p className="mb-0 small">Chia sẻ và kết nối</p>
                 </div>
               </div>
             </div>
@@ -297,23 +297,23 @@ function HomePage() {
         <div className="container">
           <div className="row g-4">
             <div className="col-lg-6 wow fadeInLeft" data-wow-delay="0.2s">
-              <Link to="/shop?search=camera" className="d-flex align-items-center justify-content-between border bg-white rounded p-4">
-                <div>
-                  <p className="text-muted mb-3">Tìm máy ảnh tốt nhất!</p>
+              <Link to="/shop?search=camera" className="homepage-offer-card d-flex align-items-center justify-content-between border bg-white rounded p-3 p-sm-4">
+                <div className="homepage-offer-copy">
+                  <p className="text-muted mb-2 mb-sm-3">Tìm máy ảnh tốt nhất!</p>
                   <h3 className="text-primary">Máy ảnh</h3>
                   <h1 className="display-3 text-secondary mb-0">40% <span className="text-primary fw-normal">Off</span></h1>
                 </div>
-                <img src="/img/product-1.png" className="img-fluid" alt="Product 1" />
+                <img src="/img/product-1.png" className="img-fluid homepage-offer-img" alt="Product 1" />
               </Link>
             </div>
             <div className="col-lg-6 wow fadeInRight" data-wow-delay="0.3s">
-              <Link to="/shop?search=watch" className="d-flex align-items-center justify-content-between border bg-white rounded p-4">
-                <div>
-                  <p className="text-muted mb-3">Tìm đồng hồ tốt nhất!</p>
+              <Link to="/shop?search=watch" className="homepage-offer-card d-flex align-items-center justify-content-between border bg-white rounded p-3 p-sm-4">
+                <div className="homepage-offer-copy">
+                  <p className="text-muted mb-2 mb-sm-3">Tìm đồng hồ tốt nhất!</p>
                   <h3 className="text-primary">Đồng hồ</h3>
                   <h1 className="display-3 text-secondary mb-0">20% <span className="text-primary fw-normal">Off</span></h1>
                 </div>
-                <img src="/img/product-2.png" className="img-fluid" alt="Product 2" />
+                <img src="/img/product-2.png" className="img-fluid homepage-offer-img" alt="Product 2" />
               </Link>
             </div>
           </div>
@@ -445,23 +445,23 @@ function HomePage() {
           <div className="row g-4">
             <div className="col-lg-6 wow fadeInLeft" data-wow-delay="0.1s">
               <Link to="/shop" className="d-block">
-                <div className="bg-primary rounded position-relative overflow-hidden">
+                <div className="homepage-promo-banner bg-primary rounded position-relative overflow-hidden">
                   <img src="/img/product-banner.jpg" className="img-fluid w-100 rounded" alt="Banner 1" />
-                  <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center rounded p-4" style={{ background: 'rgba(255, 255, 255, 0.7)' }}>
+                  <div className="homepage-promo-overlay position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center rounded p-3 p-sm-4" style={{ background: 'rgba(255, 255, 255, 0.78)' }}>
                     <h3 className="display-5 text-primary">Máy Ảnh <br /> <span>Canon Rebel T7i</span></h3>
-                    <p className="fs-4 text-dark font-weight-bold">Giá chỉ 200.000đ/ngày</p>
-                    <span className="btn btn-primary rounded-pill align-self-start py-2 px-4 mt-2">Thuê Ngay</span>
+                    <p className="fs-4 text-dark font-weight-bold mb-2 mb-sm-3">Giá chỉ 200.000đ/ngày</p>
+                    <span className="btn btn-primary rounded-pill align-self-start py-2 px-4 mt-1">Thuê Ngay</span>
                   </div>
                 </div>
               </Link>
             </div>
             <div className="col-lg-6 wow fadeInRight" data-wow-delay="0.2s">
               <Link to="/shop" className="d-block">
-                <div className="text-center bg-primary rounded position-relative overflow-hidden">
+                <div className="homepage-promo-banner text-center bg-primary rounded position-relative overflow-hidden">
                   <img src="/img/product-banner-2.jpg" className="img-fluid w-100" alt="Banner 2" />
-                  <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center rounded p-4" style={{ background: 'rgba(242, 139, 0, 0.6)' }}>
+                  <div className="homepage-promo-overlay position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center rounded p-3 p-sm-4" style={{ background: 'rgba(242, 139, 0, 0.65)' }}>
                     <h2 className="display-2 text-white font-weight-bold">ƯU ĐÃI</h2>
-                    <h4 className="display-5 text-white mb-4">Giảm phí cọc đến 50%</h4>
+                    <h4 className="display-5 text-white mb-3 mb-sm-4">Giảm phí cọc đến 50%</h4>
                     <span className="btn btn-secondary rounded-pill align-self-center py-2 px-4">Khám Phá Ngay</span>
                   </div>
                 </div>
@@ -473,9 +473,9 @@ function HomePage() {
       {/* Product Banner End */}
       {/* Our Products Start */}
       <div className="container-fluid product py-5">
-        <div className="container py-5">
+        <div className="container py-3 py-md-5">
           <div className="tab-class">
-            <div className="row g-4 align-items-end mb-5">
+            <div className="row g-4 align-items-end mb-4 mb-md-5">
               <div className="col-lg-5 text-start wow fadeInLeft" data-wow-delay="0.1s">
                 <h4 className="text-primary border-bottom border-primary border-2 d-inline-block p-2 title-border-radius mb-3">
                   Sản phẩm của chúng tôi
@@ -488,7 +488,7 @@ function HomePage() {
               <div className="col-lg-7 wow fadeInRight" data-wow-delay="0.2s">
                 <form onSubmit={handleSearchSubmit} className="bg-white border rounded-pill shadow-sm p-2 mb-3">
                   <div className="input-group">
-                    <span className="input-group-text bg-transparent border-0 ps-4 text-primary">
+                    <span className="input-group-text bg-transparent border-0 ps-2 ps-sm-4 text-primary">
                       <i className="fas fa-search"></i>
                     </span>
                     <input
@@ -498,12 +498,12 @@ function HomePage() {
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                     />
-                    <button type="submit" className="btn btn-primary rounded-pill px-4 px-md-5">
+                    <button type="submit" className="btn btn-primary rounded-pill px-3 px-md-5">
                       Tìm kiếm
                     </button>
                   </div>
                 </form>
-                <div className="d-flex flex-wrap justify-content-end gap-2">
+                <div className="d-flex flex-wrap justify-content-start justify-content-lg-end gap-2">
                   <span className="text-muted align-self-center me-2">Gợi ý:</span>
                   {['Máy ảnh', 'Xe máy', 'Cắm trại', 'Dụng cụ điện'].map((keyword) => (
                     <button

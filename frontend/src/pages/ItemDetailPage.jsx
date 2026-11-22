@@ -651,7 +651,7 @@ function ItemDetailPage() {
 
           {/* ── LEFT: Gallery ── */}
           <div className="col-lg-6">
-            <div className="sticky-top" style={{ top: '100px' }}>
+            <div className="sticky-top idp-gallery-sticky" style={{ top: '100px' }}>
               <div className="idp-main-img">
                 <img
                   src={activeImageSources.src}
