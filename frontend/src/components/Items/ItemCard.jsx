@@ -82,7 +82,7 @@ function ItemCard({ item, onFavoriteToggle }) {
   const owner = item.owner || item.ownerId;
 
   return (
-    <div className="col-md-6 col-lg-4 col-xl-3 mb-4">
+    <div className="col-12 col-sm-6 col-lg-4 col-xl-3 mb-4">
       <div
         className={`product-item rounded h-100 shadow-sm transition ${item.isFeatured ? 'product-item--featured' : ''}`}
       >
@@ -93,7 +93,7 @@ function ItemCard({ item, onFavoriteToggle }) {
               srcSet={imageSources.srcSet}
               sizes={imageSources.sizes}
               alt={item.name || t('common.placeholderImage')}
-              className="img-fluid w-100"
+              className="img-fluid w-100 item-card-main-img"
               loading="lazy"
               decoding="async"
               style={{ height: '230px', objectFit: 'cover', backfaceVisibility: 'hidden' }}

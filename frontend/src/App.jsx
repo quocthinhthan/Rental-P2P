@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import './App.css'; 
 
@@ -48,6 +48,17 @@ function ScrollToTop() {
 }
 
 function App() {
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 240);
+    };
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
     <>
       <GlobalSpinner />
@@ -93,14 +104,16 @@ function App() {
       <Footer />
 
       {/* Back to Top button (từ template) */}
-      <button
-        type="button"
-        className="btn btn-primary btn-lg-square back-to-top"
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-        aria-label="Back to top"
-      >
-        <i className="fa fa-arrow-up"></i>
-      </button>
+      {showBackToTop && (
+        <button
+          type="button"
+          className="btn btn-primary btn-lg-square back-to-top"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Back to top"
+        >
+          <i className="fa fa-arrow-up"></i>
+        </button>
+      )}
 
       {/* Help Center Widget — floating FAQ/guide panel */}
       <HelpWidget />

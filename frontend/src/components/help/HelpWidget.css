@@ -559,24 +559,27 @@
 
 
 /* ── Responsive ─────────────────────── */
-/* Trên màn hình rất nhỏ (< 480px), panel chiếm chiều rộng hợp lý */
-@media (max-width: 479px) {
+/* Mobile & small screens (<= 767px): compact FAB, clean spacing */
+@media (max-width: 767.98px) {
   .hw-root {
-    bottom: 86px;
-    right: 16px;
+    bottom: 72px;
+    right: 14px;
+  }
+
+  .hw-fab {
+    width: 46px;
+    height: 46px;
+  }
+
+  .hw-fab__icon {
+    font-size: 17px;
   }
 
   .hw-panel {
-    width: calc(100vw - 32px);
+    width: calc(100vw - 28px);
+    max-width: 360px;
     max-height: 68vh;
     right: 0;
-    bottom: 66px;
-  }
-}
-
-/* Tránh che footer trên tablet đứng */
-@media (min-width: 480px) and (max-width: 768px) {
-  .hw-panel {
-    width: 330px;
+    bottom: 58px;
   }
 }

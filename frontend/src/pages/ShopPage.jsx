@@ -23,6 +23,7 @@ function ShopPage() {
   const [radius, setRadius] = useState(searchParams.get('radius') || '');
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [isFeaturedOnly, setIsFeaturedOnly] = useState(false);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
   // States for client-side pagination and item fetching
   const [items, setItems] = useState([]);
@@ -178,7 +179,23 @@ function ShopPage() {
           
           {/* Sidebar - Bộ Lọc */}
           <div className="col-lg-3 col-md-12 wow fadeInUp" data-wow-delay="0.2s">
-            <div className="filter-sidebar">
+            <button
+              type="button"
+              className="btn w-100 d-flex d-lg-none align-items-center justify-content-between mobile-shop-filter-toggle mb-3"
+              onClick={() => setIsMobileFilterOpen((prev) => !prev)}
+              aria-expanded={isMobileFilterOpen}
+            >
+              <span className="d-flex align-items-center gap-2 fw-bold">
+                <i className="fas fa-sliders-h text-primary"></i>
+                Bộ lọc tìm kiếm
+                {hasActiveFilters && (
+                  <span className="badge rounded-pill bg-primary">Đang lọc</span>
+                )}
+              </span>
+              <i className={`fas fa-chevron-down transition-icon ${isMobileFilterOpen ? 'rotate-180' : ''}`}></i>
+            </button>
+
+            <div className={`filter-sidebar ${isMobileFilterOpen ? 'd-block' : 'd-none d-lg-block'}`}>
               <h4><i className="fas fa-sliders-h text-primary"></i> Bộ lọc tìm kiếm</h4>
 
               {/* Từ khóa */}
@@ -331,7 +348,11 @@ function ShopPage() {
 
               {/* Nút hành động */}
               <div className="d-grid gap-2 mt-4 pt-2">
-                <button type="button" className="btn btn-primary btn-apply rounded-pill text-white" onClick={() => {}}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-apply rounded-pill text-white"
+                  onClick={() => setIsMobileFilterOpen(false)}
+                >
                   Áp dụng bộ lọc
                 </button>
                 {hasActiveFilters && (

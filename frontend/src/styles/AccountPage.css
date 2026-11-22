@@ -408,3 +408,57 @@
   align-items: center;
   gap: 8px;
 }
+
+/* ── Responsive ── */
+@media (max-width: 991.98px) {
+  .acc-profile-card {
+    position: static;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .acc-page-bg {
+    padding: 1.5rem 0 2.5rem;
+  }
+
+  .acc-profile-card {
+    padding: 1.5rem 1.25rem;
+    border-radius: 16px;
+  }
+
+  .acc-form-card {
+    padding: 1.5rem 1.15rem;
+    border-radius: 16px;
+  }
+
+  .acc-ekyc-section {
+    padding: 1rem;
+  }
+
+  .acc-ekyc-verified-banner {
+    flex-wrap: wrap;
+    padding: 1rem;
+  }
+
+  .acc-ekyc-edit-btn {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .acc-ekyc-data-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .acc-idcard-preview {
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+    aspect-ratio: 200 / 126;
+  }
+
+  .acc-submit-btn,
+  .acc-verify-btn {
+    width: 100%;
+  }
+}

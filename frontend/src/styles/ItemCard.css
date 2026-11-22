@@ -59,6 +59,10 @@
   .item-card-owner-trust {
     padding: 9px;
   }
+
+  .item-card-main-img {
+    height: 205px !important;
+  }
 }
 
 /* Premium Featured VIP Badge (Warm Gold Theme) */
