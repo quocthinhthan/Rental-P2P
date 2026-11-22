@@ -5,11 +5,11 @@ const TOKEN_KEY = 'token';
 const getStoredToken = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 
 const getSocketUrl = () => {
-  if (process.env.REACT_APP_SOCKET_URL) {
-    return process.env.REACT_APP_SOCKET_URL;
+  if (import.meta.env.REACT_APP_SOCKET_URL) {
+    return import.meta.env.REACT_APP_SOCKET_URL;
   }
 
-  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost/api';
+  const apiUrl = import.meta.env.REACT_APP_API_URL || 'http://localhost/api';
   return apiUrl.replace(/\/api\/?$/, '');
 };
 
