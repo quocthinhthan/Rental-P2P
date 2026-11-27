@@ -154,6 +154,13 @@ Môi trường này mô phỏng việc triển khai ứng dụng lên một clus
 
 ---
 
+## 📚 Tài liệu Vận hành & Hạ tầng
+
+- **[Infrastructure & Security Convention](docs/INFRASTRUCTURE.md)** — Tài liệu tham chiếu chính (single source of truth) về kiến trúc hạ tầng production trên Google Cloud VM, Docker runtime baseline, Cloudflare Tunnel / DNS / WAF / Rate Limiting, SSH qua IAP, runbook kiểm tra, quy trình thay đổi và các bất biến bảo mật. Developer và AI Agent phải đọc tài liệu này trước mọi tác vụ liên quan đến hạ tầng hoặc vận hành.
+- **[AI Agent Instructions](.agents/AGENTS.md)** — Quy ước làm việc của repository và các hướng dẫn bắt buộc về phạm vi mã nguồn, nghiệp vụ và hạ tầng/bảo mật.
+
+---
+
 ## 👥 Thành viên Nhóm
 
 | STT | Họ và Tên               | MSSV     |
