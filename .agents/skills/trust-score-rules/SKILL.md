@@ -1,3 +1,8 @@
+---
+name: trust-score-rules
+description: Rental P2P MVP TrustScore domain rules, 0-100 reliability scoring formula, recalculation triggers, and safe user summary rules. Use when analyzing, updating, or auditing TrustScore, review aggregates, penalties, or public user trust summaries.
+---
+
 # Rental P2P — TrustScore Definition & Backend Rules
 
 > Purpose: This document defines what `trustScore` means in Rental P2P, how it must be calculated, where it is used, and what backend rules must be preserved.  
@@ -411,48 +416,23 @@ If existing response already has `owner`, enrich it safely rather than inventing
 
 ---
 
-## 8. Current source code problems that must be corrected
+## 8. Implementation status & known gaps
 
-Based on the current backend source:
+### 8.1. Implemented architecture
 
-### 8.1. TrustScore is incorrectly used as average star rating
+The `0–100` TrustScore model is **IMPLEMENTED** in the backend:
 
-The current review controller calculates:
+- `backend/services/trustScore.service.js` centralizes `calculateUserTrustScore`, `recalculateUserTrustScore`, `getTrustLevelFromScore`, `getUserRatingSummary`, and `toSafeUserTrustSummary`.
+- `backend/models/User.model.js` sets `trustScore` default to `50` (`min: 0`, `max: 100`) and stores `averageRating` and `totalReviews`.
+- `backend/controllers/reviews.controller.js` keeps `averageRating` and `totalReviews` separate from `trustScore` and calls `recalculateUserTrustScore` instead of directly mutating `trustScore`.
+- `backend/controllers/admin.controller.js` sets `RISKY_TRUST_SCORE_THRESHOLD = 40` on the `0–100` scale.
+- `backend/controllers/auth.controller.js`, `rentals.controller.js`, `disputes.controller.js`, and `admin.controller.js` invoke `recalculateUserTrustScore` on eKYC verification, profile save, rental completion, dispute resolution/withdrawal, item report resolution, and admin status changes.
 
-```txt
-trustScore = average public review rating
-```
+### 8.2. Remaining verified gaps (pending Founder decision or fix)
 
-This is incorrect.  
-It must become:
-
-```txt
-averageRating = average public review rating
-trustScore = reliability score from the scoring rules in this document
-```
-
-### 8.2. TrustScore scale is inconsistent
-
-The current code mixes incompatible meanings:
-
-- Review logic treats `trustScore` as roughly `1.0–5.0`.
-- Dispute logic subtracts `20`, `50`, or sets `-100`.
-- Item report logic subtracts `10` or `30`.
-- Admin risky-user logic checks `trustScore < 3`.
-
-These behaviors must be normalized to the new `0–100` score.
-
-### 8.3. Direct mutations should be removed
-
-Controllers should not directly apply arithmetic mutations to `trustScore`.  
-They should persist the underlying event and call the centralized trust score recalculation service.
-
-### 8.4. New user default should be reconsidered
-
-Current `User.trustScore` default is `0`.  
-Under the defined model, it should become `50`.
-
-Existing users may need a one-time recalculation utility/script or a safe migration approach.
+- **Unban after historical dispute ban penalty:** In `trustScore.service.js`, `calculateUserTrustScore` checks `if (user.isBanned || disputePenalty.hasBanPenalty)` and forces `trustScore = 0`. If an admin later unbans a user who previously received a `Dispute` with `penaltyType = 'ban'`, the historical dispute still pins `trustScore` to `0`.
+- **Lazy review auto-publish:** Hidden double-blind reviews older than 7 days are published and recalculated lazily inside `getUserReviews` and `getItemReviews`, not via a background cron job.
+- **Public item detail phone exposure:** `GET /api/views/item-details/:id` (`views.controller.js`) currently returns `owner.phoneNumber` to any unauthenticated or authenticated caller (frontend `ItemDetailPage.jsx` hides it visually behind `isLoggedIn`, while the API payload still includes it), deviating from §7.1 unless the Founder confirms phone visibility is intentional.
 
 ---
 

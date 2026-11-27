@@ -61,7 +61,7 @@ Implement or preserve these user-facing APIs:
   - Restore rental and item state when appropriate.
 
 - `PATCH /api/disputes/:id/escalate`
-  - Proposed API.
+  - Implemented API (`backend/routes/disputes.routes.js`, `backend/controllers/disputes.controller.js`).
   - Allow renter or owner of the rental to request Admin intervention.
   - Only allow after `mediationEndsAt` or at least 48 hours after `createdAt`.
   - Set `escalatedAt`, `escalatedBy`, and a status that Admin queues can filter.
@@ -123,7 +123,7 @@ dispute.status = pending | escalated | resolved | withdrawn
 - `owner`: Owner wins. Usually complete the rental and release payout to owner.
 - `none`: No side clearly wins, evidence is insufficient, both sides self-settle, or Admin rejects the complaint without assigning a winner.
 
-Do not infer `winner` only from `penaltyType`. A user can win while still receiving a warning for separate behavior, and `winner = none` can have no penalty.
+Do not infer `winner` only from `penaltyType`. A user can win while still receiving a warning for separate behavior, and `winner = none` can have no penalty. Note: current implementation (`backend/controllers/disputes.controller.js` and `frontend/src/components/Admin/AdminDisputeResolutionForm.jsx`) strictly rejects any `penaltyType !== 'none'` when `winner === 'none'`.
 
 ## Penalty Semantics
 
@@ -183,31 +183,26 @@ winner = none
 
 ## Data Model Guidance
 
-The existing `Dispute` collection may be reused for MVP. Prefer extending it before creating new tables or collections.
-
-Existing fields:
+All core and escalation/resolution fields below are **implemented** in `backend/models/Dispute.model.js`:
 
 - `rentalId`
 - `reporterId`
 - `reason`
 - `evidenceImages`
-- `status`
+- `status` (`pending` | `escalated` | `withdrawn` | `resolved`)
 - `adminDecision`
-
-Recommended fields:
-
 - `previousRentalStatus`
 - `previousItemStatus`
 - `mediationEndsAt`
 - `escalatedAt`
 - `escalatedBy`
-- `winner`
+- `winner` (`renter` | `owner` | `none` | `null`)
 - `penalizeUserId`
-- `penaltyType`
+- `penaltyType` (`none` | `warning` | `suspension` | `ban`)
 - `resolvedBy`
 - `resolvedAt`
 
-Recommended creation defaults:
+Creation defaults applied in `disputes.controller.js` / `Dispute.model.js`:
 
 ```text
 status = pending
@@ -224,7 +219,7 @@ When `rental.status === DISPUTED`:
 - Show a `Dang tranh chap` badge.
 - Disable action buttons that can advance, cancel, sign, complete, confirm, reject, pickup, pay, refund, or release payout outside the dispute flow.
 - Show dispute reason and evidence when available.
-- Show `Rut khieu nai` only to the reporter while `dispute.status = pending`.
+- Show `Rut khieu nai` to the reporter. Note: current backend (`disputes.controller.js`) and frontend (`RentalDetailPage.jsx`) allow the reporter to withdraw while `dispute.status` is `pending` OR `escalated` (pending Founder decision on whether withdraw should be blocked after escalation).
 - Show `Yeu cau Admin can thiep` only after `mediationEndsAt`.
 - Show clear pending/escalated/resolved state labels without implying Admin has ruled before resolution.
 
@@ -237,9 +232,10 @@ Admin resolution form should include:
 
 ## Implementation Notes
 
-- Use database transactions or equivalent guarded updates when freezing rental state, resolving payments, and applying penalties.
-- Avoid status string drift. Reuse project constants/enums for `DISPUTED`, `CANCELLED`, `COMPLETED`, `REFUNDED`, and payment statuses.
-- Keep money movement centralized in payment/escrow services if such services exist.
+- Use database transactions or equivalent guarded updates when freezing rental state, resolving payments, and applying penalties. (Verified gap: `resolveDispute` and `withdrawDispute` currently update `Rental`, `Item`, `User`, and `Dispute` sequentially without a transaction or atomic status lock, unlike `createDisputeAndFreezeRental`.)
+- Avoid status string drift. Reuse project constants/enums for `DISPUTED`, `CANCELLED`, `COMPLETED`, `REFUNDED`, and payment statuses. (Verified note: `RentalStatus` has `CANCELLED`, not `REFUNDED`, so `winner = renter` sets `rental.status = cancelled` and `paymentStatus = refunded`.)
+- Keep money movement centralized in payment/escrow services if such services exist. (Current MVP has no VNPay refund/payout transfer API; monetary statuses are database records only.)
 - Treat evidence images as supporting material, not proof by themselves.
-- Log Admin decisions with `resolvedBy` and `resolvedAt` for auditability.
+- Log Admin decisions with `resolvedBy` and `resolvedAt` for auditability. (Verified gap: `resolveDispute` does not currently write an `AuditLog` document such as `admin.dispute.resolve`, even though `AdminUsersPage.jsx` includes `admin.dispute.resolve` in its audit-log filter.)
+- When restoring or releasing `item.status` on resolve (`winner = renter` / `winner = owner`), check whether `item` is `delisted` or has another active rental rather than blindly setting `item.status = available`.
 - Do not let withdraw, escalate, and resolve race each other. Re-check dispute status immediately before mutation.
