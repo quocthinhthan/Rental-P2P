@@ -1,13 +1,13 @@
 # Rental P2P MVP — Product & Business Context (BA Knowledge Base)
 
-> Last audited: 2026-11-22 (read-only audit against repository source & `.agents/` docs)  
-> Scope: Web & Backend MVP (`backend/`, `frontend/`, `notification-worker/`). `mobile/` and Docker deployment configs are out of scope per `.agents/AGENTS.md`.
+> Last audited: 2026-11-27 (read-only audit synced with commit `205cde3`: `docs/INFRASTRUCTURE.md`, `nginx/nginx.tunnel.conf`, `docker-compose.prod.yml`, `docs/design/RENTALHUB_*.md`)  
+> Scope: Web, Backend, Worker, and Production Infrastructure baseline (`backend/`, `frontend/`, `notification-worker/`, `nginx/`, `docker-compose.prod.yml`, `docs/`). `mobile/` remains OUT OF SCOPE per `.agents/AGENTS.md`. Local Windows dev runs without Docker (`.\start-all.ps1`); production runs on Docker behind Cloudflare Tunnel per `docs/INFRASTRUCTURE.md`.
 
 ---
 
 ## 1. Product Vision & Problem Statement
 
-- **Vision:** A peer-to-peer (P2P) sharing-economy marketplace enabling individuals to safely rent personal items (electronics, cameras, camping gear, household tools, vehicles, etc.) from nearby owners with transparent escrow, digital contracts, condition handover logs, and community trust signals.
+- **Vision:** A peer-to-peer (P2P) sharing-economy marketplace enabling individuals to safely rent personal items (electronics, cameras, camping gear, household tools, vehicles, etc.) from nearby owners with transparent escrow, digital contracts, condition handover logs, and community trust signals. *(Working brand ambiguity: existing code/UI uses `RentalP2P` / `Rental P2P`, while `docs/design/` uses `RentHub` as a working name; final production brand awaits Founder confirmation.)*
 - **Core Problems Addressed:**
   1. **Idle asset monetization & affordable short-term access:** Owners earn passive income on underutilized personal belongings; renters access equipment temporarily without buying.
   2. **Peer trust deficit:** Strangers hesitate to hand over valuable items or deposits. Mitigated via eKYC (CCCD OCR), 0–100 `trustScore`, double-blind reviews, VNPay escrow simulation, electronic signatures, photo-backed pickup/return reports, and admin-mediated disputes.
@@ -96,20 +96,30 @@
 - **Admin Audit Trail Completeness:** `AdminUsersPage.jsx` filter lists `admin.dispute.resolve` and `admin.user.update_ekyc`, yet `resolveDispute` writes no `AuditLog` and no admin eKYC override endpoint exists.
 - **Frontend Role Guard & i18n:** `/admin/*` routes use `<ProtectedRoute />` which checks `isLoggedIn` only (not `user.role === 'admin'`); `vi.json` omits `rental.status.disputed` and most JSX pages use hardcoded Vietnamese strings.
 - **AI Price Suggestion without Gemini Key:** `items.controller.js:560` averages `ruleBasedPrice` with `aiSuggestedPrice` (initialized `null`), halving suggested price when `GEMINI_API_KEY` is absent.
+- **Auth Edge/Origin Rate Limiting & Edge HSTS (`docs/INFRASTRUCTURE.md` §1.1, §7.3, §12):** `POST /api/auth/register` lacks a dedicated backend limiter (uses general `apiLimiter` 300/15m); Cloudflare Auth Rate Limiting HTTP 429 behavior and Cloudflare Edge HSTS remain `TODO` (`nginx/nginx.tunnel.conf` serves HTTP `:80` behind Tunnel without HSTS).
+- **Static / UI-only Web Surfaces (`docs/design/RENTALHUB_PRODUCT_CONTEXT.md`):** `/contact` (`ContactPage.jsx`) renders a message form with no submit handler/support inbox; `/` (`HomePage.jsx`) includes static promotional tiles without discount backend; `*` (`NotFoundPage.jsx`) displays English fallback copy; `/login` redirects to `/` even when reached from gated flows.
 
-### 4.3. PLANNED / PROPOSED (Documented in Skills, Not Implemented)
+### 4.3. PLANNED / PROPOSED (Documented in Skills & Design Brief, Not Implemented)
+- **Web UI/UX Redesign Exploration (Concept Phase):** 3 Style Exploration Boards covering 28 web routes documented in `docs/design/RENTALHUB_{DESIGNER_BRIEF,PRODUCT_CONTEXT,SCREEN_INVENTORY}.md`; Founder review precedes any production UI redesign.
 - Dedicated `/admin/rentals` management page (referenced in `ui-designer/SKILL.md:82`, does not exist in routes/API).
 - Separate Owner vs Renter TrustScore dimensions, time-decay for old penalties, cancellation-rate fraud signals, user-facing score breakdown, background cron for auto-publishing reviews, and admin manual TrustScore override (`trust-score-rules/SKILL.md` §11).
 - Automated VNPay refund / payout disbursements.
 
 ### 4.4. UNKNOWN
 - `mobile/` feature parity and contracts (explicitly out-of-scope).
-- Whether `swagger.yaml`, `README.md`, `HANDOFF.md`, and `DEMO_SCRIPT.md` remain intentionally frozen for academic/Docker grading or should be refreshed.
+- `README.md` now links `docs/INFRASTRUCTURE.md` and `.agents/AGENTS.md` while retaining outdated `docker-compose.yml` / `docker-compose.swarm.yml` instructions (`DRIFT` noted in `docs/INFRASTRUCTURE.md` §1.1); whether `swagger.yaml`, `HANDOFF.md`, and `DEMO_SCRIPT.md` remain intentionally frozen or should be refreshed is open.
+- Production MongoDB Atlas backup/restore, GCP VPC/IAM audit, `rental-test` DNS/wildcard cleanup, `/api-docs` exposure verification, and live `/img/*` cache headers remain `TODO` in `docs/INFRASTRUCTURE.md` §12.
 
 ---
 
 ## 5. Confirmed Architecture & Constraints
 
 - **Stack:** Node.js (`>=24.22 <25`) + Express + MongoDB/Mongoose + Socket.IO + RabbitMQ (`amqplib`) + Cloudinary + React 18 + Vite 8 + Bootstrap + Leaflet + SweetAlert2 + CKEditor 5.
-- **Local Runtime:** `.\start-all.ps1` starts MongoDB (if loopback), RabbitMQ, `backend/server.js`, `frontend` (Vite port `3000`), and `notification-worker/worker.js` using root `.env`.
+- **Local Runtime:** `.\start-all.ps1` starts MongoDB (if loopback), RabbitMQ, `backend/server.js`, `frontend` (Vite port `3000`), and `notification-worker/worker.js` using root `.env` (no Docker needed locally).
+- **Production Deployment & Security Baseline (`VERIFIED` per `docs/INFRASTRUCTURE.md`, 2026-11-27):**
+  - **Host & URL:** `https://rental.thanquocthinh.id.vn` on GCP Linux VM (`rental-vps`, `/opt/Rental-P2P-MVP`), deployed via `/opt/Rental-P2P-MVP/deploy.sh` + `docker-compose.prod.yml` + `.env.prod`.
+  - **Containers & Networking:** 5 containers on internal Docker bridge `app-network` (`rental_p2p_nginx`, `rental_p2p_cloudflared`, `rental_p2p_backend`, `rental_p2p_worker`, `rental_p2p_rabbitmq`) with zero host-published app ports.
+  - **Ingress & Proxy:** Public traffic strictly via Cloudflare Tunnel `rentalhub-production` (ingress v4) → `http://nginx:80` (`nginx/nginx.tunnel.conf`, `client_max_body_size 10m`, real client IP via `CF-Connecting-IP` + Express `trust proxy = 1`; proxies `/api/` and `/socket.io/` to `backend:5000` so `/api-docs` is not proxied by `nginx.tunnel.conf`).
+  - **Admin Access & Firewall:** SSH strictly via Google Cloud IAP (`35.235.240.0/20`) + key auth + UFW default-deny; Certbot host timer/cron disabled.
+  - **External Services & Edge Security:** MongoDB Atlas (`MONGO_URI`), Cloudinary (`CLOUDINARY_*`), SMTP over 587/465 (GCP blocks outbound TCP 25); 2 Active Cloudflare WAF Custom Rules (scanner paths, non-standard ports) + 1 Active Rate Limiting Rule (`/api/auth/login`, `/api/auth/register`).
 - **Automated Tests:** No active unit/integration test suite exists (`backend/package.json` test script is default placeholder; `frontend/package.json` has no `test` script after Vite migration).

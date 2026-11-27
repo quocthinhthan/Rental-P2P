@@ -74,7 +74,7 @@ Mounted backend API groups in `server.js`:
 
 ### Local Scripts
 
-- Usual local startup on Windows: run `.\start-all.ps1` from repo root to launch backend, frontend, and notification worker (checks RabbitMQ service and starts local MongoDB only when `MONGO_URI` targets loopback). Docker files describe the legacy setup.
+- Usual local startup on Windows: run `.\start-all.ps1` from repo root to launch backend, frontend, and notification worker (checks RabbitMQ service and starts local MongoDB only when `MONGO_URI` targets loopback). Production runs on Docker via `docker-compose.prod.yml` + `nginx/nginx.tunnel.conf` (see `docs/INFRASTRUCTURE.md`).
 - Backend and worker load the root `.env`. Backend needs MongoDB and `JWT_SECRET` to start, and connects to RabbitMQ in the background when `RABBITMQ_ENABLED=true`. Email flows require RabbitMQ, worker, and SMTP config.
 - Backend only (`backend/`): `npm run dev` (nodemon) or `npm start` (`node server.js`).
 - Frontend only (`frontend/`): `npm start` or `npm run dev` runs Vite (`frontend/vite.config.js`, port from `FRONTEND_PORT || 3000`); `npm run build` outputs to `build/`.
@@ -196,7 +196,7 @@ When touching these APIs from the frontend:
 
 ## Senior BA & Requirements Governance
 
-- For product discovery, requirements analysis, business rule review, or BA audits, follow `.agents/skills/senior-ba/SKILL.md` and read its references (`references/product-context.md`, `references/decision-log.md`).
+- For product discovery, requirements analysis, business rule review, or BA audits, follow `.agents/skills/senior-ba/SKILL.md` and its references (`references/product-context.md`, `references/decision-log.md`), plus `docs/INFRASTRUCTURE.md` (infra/NFR baseline) and `docs/design/RENTALHUB_*.md` (web UI/UX exploration baseline).
 - **Four-Tier Source of Truth:** Distinguish (1) Founder Decisions, (2) Approved Requirements, (3) Current Implementation, and (4) Proposals. Never decide unresolved business rules for the Founder or silently rewrite approved requirements to hide implementation mismatches.
 - **No Unrequested Code Edits in BA Work:** Do not modify application source code, migrations, or DB state during BA analysis unless explicitly asked.
 - **Sync After Confirmation:** Only after the Founder explicitly confirms a decision, update `decision-log.md`, `product-context.md`, affected domain skills, and `.agents/AGENTS.md` (if architecture/APIs/rules changed).
