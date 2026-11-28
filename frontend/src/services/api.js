@@ -69,7 +69,6 @@ export const resetPassword = (token, password) => api.put(`/auth/reset-password/
 
 export const updateProfile = (payload) => api.put('/auth/profile', payload);
 
-export const verifyEKYC = (idCardFrontUrl) => api.post('/auth/verify-ekyc', { idCardFrontUrl });
 
 // === Viettel AI eKYC ===
 export const getEkycStatus = () => api.get('/ekyc/status', { skipGlobalLoading: true });
@@ -155,20 +154,20 @@ export const requireAdminUserEkyc = (userId, reason = '') =>
   api.patch(`/admin/users/${encodeURIComponent(userId)}/require-ekyc`, { reason });
 
 // === Items ===
-export const getItems = (params = {}) => {
+export const getItems = (params = {}, config = {}) => {
   if (typeof params === 'string') {
     const queryString = buildItemsQueryString({
       limit: ITEM_SEARCH_LIMIT,
       search: trimSearchText(params),
     });
-    return api.get(`/items?${queryString}`);
+    return api.get(`/items?${queryString}`, config);
   }
 
   const queryString = buildItemsQueryString({
     limit: ITEM_SEARCH_LIMIT,
     ...params,
   });
-  return api.get(`/items${queryString ? `?${queryString}` : ''}`);
+  return api.get(`/items${queryString ? `?${queryString}` : ''}`, config);
 };
 
 const buildItemsQueryString = (params = {}) => {
@@ -379,7 +378,6 @@ const apiService = {
   forgotPassword,
   resetPassword,
   updateProfile,
-  verifyEKYC,
   getEkycStatus,
   createEkycSession,
   claimEkycSession,

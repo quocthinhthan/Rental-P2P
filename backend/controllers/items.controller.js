@@ -61,8 +61,9 @@ const validateCoordinates = (lat, lng) => {
 // GET /api/items?search=...&category=...&address=...&startDate=...&endDate=...
 const searchItems = async (req, res) => {
   try {
-    const { search, category, address, startDate, endDate, ownerId, exclude, lat, lng, radius, includeMapLocation, limit, page } = req.query;
+    const { search, category, address, startDate, endDate, ownerId, exclude, lat, lng, radius, includeMapLocation, includePagination, limit, page } = req.query;
     const shouldIncludeMapLocation = Boolean(lat && lng && (includeMapLocation === 'true' || includeMapLocation === '1'));
+    const shouldIncludePagination = includePagination === 'true' || includePagination === '1';
     const resultLimit = shouldIncludeMapLocation
       ? clampNumber(limit, DEFAULT_MAP_SEARCH_LIMIT, 1, MAX_MAP_SEARCH_LIMIT)
       : clampNumber(limit, DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT);
@@ -72,8 +73,11 @@ const searchItems = async (req, res) => {
     let query = { status: { $ne: 'delisted' } };
 
     // 1. CÁC BỘ LỌC CƠ BẢN
-    if (ownerId) query.ownerId = ownerId;
-    if (exclude) query._id = { ...query._id, $ne: exclude };
+    if ((ownerId && !mongoose.isObjectIdOrHexString(ownerId)) || (exclude && !mongoose.isObjectIdOrHexString(exclude))) {
+      return res.status(400).json({ message: 'Mã chủ sở hữu hoặc vật phẩm không hợp lệ.' });
+    }
+    if (ownerId) query.ownerId = new mongoose.Types.ObjectId(ownerId);
+    if (exclude) query._id = { $ne: new mongoose.Types.ObjectId(exclude) };
     if (req.query.isFeatured) {
       query.isFeatured = req.query.isFeatured === 'true' || req.query.isFeatured === '1';
     }
@@ -118,10 +122,11 @@ const searchItems = async (req, res) => {
       const ownerBlockedIds = ownerBlockedItems.map(i => i._id.toString());
 
       const allUnavailableIds = [...new Set([...unavailableItemIds, ...ownerBlockedIds])];
-      query._id = { ...query._id, $nin: allUnavailableIds };
+      query._id = { ...query._id, $nin: allUnavailableIds.map((id) => new mongoose.Types.ObjectId(id)) };
     }
 
-    let items = [];
+    let items;
+    let total;
 
     // 3. TÌM KIẾM THEO VỊ TRÍ ($geoNear) NẾU CÓ TỌA ĐỘ
     if (lat && lng) {
@@ -153,17 +158,16 @@ const searchItems = async (req, res) => {
         projectFields.location = 1;
       }
 
-      items = await Item.aggregate([
-        {
-          // LƯU Ý: $geoNear BẮT BUỘC phải là stage đầu tiên trong pipeline
-          $geoNear: {
-            near: { type: "Point", coordinates: [coords.parseLng, coords.parseLat] },
-            distanceField: "distance",
-            maxDistance: radiusInMeters,
-            spherical: true,
-            query: query // Đẩy toàn bộ filter (name, status, exclude...) vào đây
-          }
+      const geoNear = {
+        $geoNear: {
+          near: { type: 'Point', coordinates: [coords.parseLng, coords.parseLat] },
+          distanceField: 'distance',
+          maxDistance: radiusInMeters,
+          spherical: true,
+          query
         },
+      };
+      const pageStages = [
         { $skip: resultSkip },
         { $limit: resultLimit },
         {
@@ -189,23 +193,42 @@ const searchItems = async (req, res) => {
             }
           }
         }
-      ]);
+      ];
+
+      if (shouldIncludePagination) {
+        const [results] = await Item.aggregate([
+          geoNear,
+          {
+            $facet: {
+              items: [{ $sort: { distance: 1, _id: 1 } }, ...pageStages],
+              totals: [{ $count: 'total' }]
+            }
+          }
+        ]);
+        items = results?.items ?? [];
+        total = results?.totals[0]?.total ?? 0;
+      } else {
+        items = await Item.aggregate([geoNear, ...pageStages]);
+      }
     } else {
-      // 4. FALLBACK: NẾU KHÔNG CÓ TỌA ĐỘ, DÙNG FIND BÌNH THƯỜNG
-      items = await Item.find(query)
+      const pageQuery = Item.find(query)
         .select('_id code name category address pricePerDay images status ownerId isFeatured')
         .populate('ownerId', '_id fullName avatarUrl ekycStatus averageRating totalReviews trustScore')
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(resultSkip)
         .limit(resultLimit);
+      [items, total] = await Promise.all([
+        pageQuery,
+        shouldIncludePagination ? Item.countDocuments(query) : null
+      ]);
     }
 
     // 5. FETCH ACTIVE RENTALS FOR DYNAMIC STATUS MAPPING
     const itemIds = items.map(item => item._id);
-    const activeRentals = await Rental.find({
+    const activeRentals = itemIds.length ? await Rental.find({
       itemId: { $in: itemIds },
       status: { $in: ACTIVE_BOOKING_STATUSES }
-    }).select('itemId startDate endDate');
+    }).select('itemId startDate endDate') : [];
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -257,6 +280,17 @@ const searchItems = async (req, res) => {
       return summary;
     });
 
+    if (shouldIncludePagination) {
+      return res.status(200).json({
+        items: itemSummaries,
+        pagination: {
+          currentPage: resultPage,
+          limit: resultLimit,
+          total,
+          totalPages: Math.ceil(total / resultLimit)
+        }
+      });
+    }
     res.status(200).json(itemSummaries);
   } catch (error) {
     console.error('[DEBUG] LỖI SEARCH ITEMS:', error);
@@ -540,6 +574,9 @@ const suggestPrice = async (req, res) => {
     }
     
     baseValue = Number(baseValue);
+    if (!Number.isFinite(baseValue) || baseValue <= 0) {
+      return res.status(400).json({ message: 'Giá trị mua mới phải là số dương.' });
+    }
     const catLower = category ? category.toLowerCase() : 'khác';
 
     // 2. LÀM SẠCH VÀ GIỚI HẠN MÔ TẢ (Chống Spam & Tấn công)
@@ -564,10 +601,11 @@ const suggestPrice = async (req, res) => {
 
     // --- MODULE 2: LLM ENGINE (THÔNG MINH THẬT SỰ) ---
     let aiSuggestedPrice = null;
-    let aiReasoning = "Chưa có phân tích từ AI do đang dùng giá mặc định."; // Mặc định nếu không có API key
+    let aiReasoning = 'Đang dùng giá theo công thức.';
     let marketContext = "Dựa trên khấu hao cơ bản.";
 
     if (genAI) {
+      let generationTimeout;
       try {
         const similarItemsCount = await Item.countDocuments({ category: category, status: 'available' });
         const demandStatus = similarItemsCount > 10 ? "Nguồn cung đang dồi dào, cần giá cạnh tranh" : "Nguồn cung khan hiếm, có thể để giá cao hơn";
@@ -597,38 +635,35 @@ const suggestPrice = async (req, res) => {
           "reasoning": "Vì đồ đã xước và pin chai, cần giảm giá để dễ cho thuê hơn." 
         }`;
         
-        // CHỐNG TREO APP: Ép AI chỉ được nghĩ tối đa 4 giây
+        // Giới hạn thời gian chờ AI trong một yêu cầu.
         const result = await Promise.race([
             model.generateContent(prompt),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("AI_TIMEOUT")), 20000))
+            new Promise((_, reject) => {
+              generationTimeout = setTimeout(() => reject(new Error('AI_TIMEOUT')), 20000);
+            })
         ]);
         
         const parsedData = JSON.parse(result.response.text());
-        
-        if (parsedData && parsedData.suggestedPrice) {
-            let tempAiPrice = Number(parsedData.suggestedPrice);
-            
-            // GUARDRAILS: Chặn AI báo giá hoang tưởng
-            const maxAllowed = baseValue * 0.10;
-            const minAllowed = baseValue * 0.005;
-            
-            if (tempAiPrice > maxAllowed || tempAiPrice < minAllowed) {
-                aiSuggestedPrice = ruleBasedPrice; 
-                aiReasoning = "AI đề xuất giá ngoài biên độ an toàn, hệ thống tự động dùng giá tiêu chuẩn.";
-            } else {
-                aiSuggestedPrice = tempAiPrice;
-                aiReasoning = parsedData.reasoning || "Đã phân tích dựa trên khấu hao và thị trường.";
-            }
+        const rawPrice = parsedData?.suggestedPrice;
+        const suggestedPrice = typeof rawPrice === 'number' || typeof rawPrice === 'string' ? Number(rawPrice) : NaN;
+        if (!Number.isFinite(suggestedPrice) || suggestedPrice < baseValue * 0.005 || suggestedPrice > baseValue * 0.10) {
+          aiReasoning = 'Phản hồi AI chưa có mức giá hợp lệ. Hệ thống dùng giá theo công thức.';
+        } else {
+          aiSuggestedPrice = suggestedPrice;
+          aiReasoning = parsedData.reasoning || 'Đã phân tích dựa trên khấu hao và thị trường.';
         }
       } catch (aiError) {
         console.error('[DEBUG] Lỗi gọi AI (Có thể do Timeout hoặc hết Quota):', aiError.message);
-        aiSuggestedPrice = ruleBasedPrice;
-        aiReasoning = "Máy chủ AI phản hồi chậm, tự động áp dụng giá tiêu chuẩn.";
+        aiReasoning = 'Không lấy được phản hồi AI. Hệ thống dùng giá theo công thức.';
+      } finally {
+        clearTimeout(generationTimeout);
       }
     }
 
     // --- MODULE 3: ENSEMBLE ---
-    const finalSuggestion = Math.round((ruleBasedPrice + aiSuggestedPrice) / 2);
+    const finalSuggestion = aiSuggestedPrice === null
+      ? ruleBasedPrice
+      : Math.round((ruleBasedPrice + aiSuggestedPrice) / 2);
 
     const responseData = {
       ruleBasedPrice,
@@ -639,7 +674,7 @@ const suggestPrice = async (req, res) => {
     };
 
     pricingCache.set(cacheKey, responseData);
-    setTimeout(() => pricingCache.delete(cacheKey), 12 * 60 * 60 * 1000);
+    setTimeout(() => pricingCache.delete(cacheKey), 12 * 60 * 60 * 1000).unref();
 
     res.status(200).json(responseData);
 

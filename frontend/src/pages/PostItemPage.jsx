@@ -736,13 +736,19 @@ function PostItemPage() {
                               <strong>{formatCurrency(priceSuggestion.ruleBasedPrice)}</strong>
                             </div>
                           </div>
-                          <div className="col-md-4">
-                            <div className="post-item-price-card">
-                              <span>AI phân tích</span>
-                              <strong>{formatCurrency(priceSuggestion.aiSuggestedPrice)}</strong>
+                          {Number.isFinite(priceSuggestion.aiSuggestedPrice) && (
+                            <div className="col-md-4">
+                              <div className="post-item-price-card">
+                                <span>AI phân tích</span>
+                                <strong>{formatCurrency(priceSuggestion.aiSuggestedPrice)}</strong>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
+
+                        {priceSuggestion.aiSuggestedPrice === null && priceSuggestion.aiReasoning && (
+                          <p className="text-muted small mt-2 mb-0">{priceSuggestion.aiReasoning}</p>
+                        )}
 
                         {priceSuggestion.marketContext && (
                           <div className="text-muted small mt-2">

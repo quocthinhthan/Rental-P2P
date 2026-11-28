@@ -367,7 +367,7 @@
 .pagination-container .shop-pagination {
   display: flex !important;
   flex-direction: row !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   align-items: center !important;
   justify-content: flex-end !important;
   list-style: none !important;
