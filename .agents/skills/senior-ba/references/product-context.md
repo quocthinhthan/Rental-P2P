@@ -31,12 +31,13 @@
 ## 3. Core Domain Entities & Lifecycles
 
 ### 3.1. `Item` (`backend/models/Item.model.js`, `backend/enums/item.enum.js`)
-- **Fields:** `code` (`SP...`), `name`, `description` (HTML via CKEditor, sanitized on render by `frontend/src/utils/sanitize.js`), `category`, `images`, `ownerId`, `pricePerDay`, `baseValue`, `depositPercentage` (0–120, default 100), `address`, `location` (GeoJSON `Point`), `status`, `isFeatured`, `blockedDates[]`.
+- **Fields:** `code` (`SP...`), `name`, `description` (HTML via CKEditor, sanitized on render by `frontend/src/utils/sanitize.js`), `category`, `images`, `ownerId`, `pricePerDay`, `baseValue`, `depositPercentage` (0–120, default 100), `address`, `location` (GeoJSON `Point`), `status`, `isFeatured`, `delistedByAdmin` (`Boolean`), `adminDelistReason` (`String`), `blockedDates[]`.
 - **Statuses:** `available` | `rented` | `delisted`.
-- **Runtime behavior:** `Item.status = rented` reflects whether a booking covers "today" (`updateItemRuntimeStatus` in `rentals.controller.js`); future bookings remain date-range based.
+- **Governance & Runtime behavior:** When `delistedByAdmin === true`, owner `PUT /api/items/:id` is blocked (`403`). `DELETE /api/items/:id` is blocked (`400`) if the item has any active or historical rental. `Item.status = rented` reflects whether an active booking (`confirmed`, `in_progress`, `disputed`) covers "today" via `syncItemRuntimeStatus` (`backend/services/itemAvailability.service.js`); future bookings remain date-range based.
 
 ### 3.2. `Rental` (`backend/models/Rental.model.js`, `backend/enums/rental.enum.js`)
 - **Rental Statuses:** `pending_payment` -> `pending_confirmation` -> `confirmed` -> `in_progress` -> `completed` | `rejected` | `cancelled` | `disputed`. *(Note: `RentalStatus` does NOT include `refunded`; `PaymentStatus` tracks `pending` | `escrowed` | `refunded`.)*
+- **Availability & Date Rules:** `createRentalRequest` blocks `startDate` before `00:00` today (`400`). `createRentalRequest`, `createVNPayUrl`, `handleVNPayReturn`, and `confirmRental` enforce `checkItemDateAvailability` (rejecting `delisted`/`delistedByAdmin`, owner `blockedDates`, and `ACTIVE_BOOKING_STATUSES` including `disputed`). `approvePickup` calls `syncItemRuntimeStatus`.
 - **Pricing & Commission Formula (`createRentalRequest`):**
   - `days = ceil((end - start) / 86400000) + 1` (inclusive calendar days).
   - `rentalFee = days * item.pricePerDay`
@@ -53,7 +54,7 @@
 
 ### 3.4. `Dispute` (`backend/models/Dispute.model.js`, `backend/enums/dispute.enum.js`)
 - **Statuses:** `pending` (48h mediation window via `mediationEndsAt`) -> `escalated` (by either party after `mediationEndsAt`) -> `resolved` (by Admin) or `withdrawn` (by reporter).
-- **Outcomes (`winner`):** `renter` (sets `rental.status = cancelled`, `paymentStatus = refunded`, `item.status = available`) | `owner` (sets `rental.status = completed`, `item.status = available`) | `none` (restores `previousRentalStatus` & `previousItemStatus`; requires `penaltyType = none`).
+- **Atomicity & Outcomes (`winner`):** `escalateDispute`, `withdrawDispute`, and `resolveDispute` use atomic `Dispute.findOneAndUpdate` status guards (`409` on race) + optional MongoDB transaction. `renter` sets `rental.status = cancelled` and `paymentStatus = refunded` (only if currently `escrowed`) | `owner` sets `rental.status = completed` | `none` restores `previousRentalStatus` (requires `penaltyType = none`). All outcomes sync `Item.status` via `syncItemRuntimeStatus` (preserving `delisted` / `delistedByAdmin` and concurrent active rentals).
 - **Penalties (`penaltyType`):** `none` | `warning` (-15 TrustScore) | `suspension` (+7 days `suspendedUntil`, -30 TrustScore, capped <= 40 while suspended) | `ban` (`isBanned = true`, TrustScore = 0).
 
 ### 3.5. `Review` & `TrustScore`
@@ -62,7 +63,7 @@
 
 ### 3.6. `ItemReport` & `AuditLog`
 - `ItemReport`: `pending` -> `resolved` with `action` (`no_action`, `warn_owner` [-10], `hide_item` [-15 + delist], `delist_item` [-15 + delist], `ban_item` [-25 + delist]). One report per `(itemId, reporterId)` enforced in controller.
-- `AuditLog`: Records admin actions (`admin.user.update_status`, `admin.item.update_status`, `admin.item.update_feature`, `admin.item_report.resolve`).
+- `AuditLog`: Records admin actions (`admin.user.update_status`, `admin.item.update_status`, `admin.item.update_feature`, `admin.item_report.resolve`, `admin.dispute.resolve`).
 
 ---
 
@@ -93,7 +94,7 @@
 - **Overdue, Late Fee & Rental Extension:** `getRentalDetail` and `getMyRentalsView` return `actualReturnDate`, `overdueDays`, `lateFeeAmount` (and `extensionRequest` in `views.controller.js:284`), **but** these fields do not exist on `Rental.model.js` and no endpoint/logic calculates late fees or processes rental extensions.
 - **Availability Calendar vs Booking Enforcement:** Search (`items.controller.js`) and calendar view (`views.controller.js`) check `blockedDates` and `['pending_confirmation', 'confirmed', 'in_progress']` (missing `disputed`), whereas booking/payment/confirmation (`rentals.controller.js`) check `['pending_confirmation', 'confirmed', 'in_progress', 'disputed']` and **ignore `blockedDates`**.
 - **Notification Worker Email Templates:** `rental_status_changed` only populates email body for `confirmed` and `rejected`; calls from `cancelRental` (`cancelled`), `approvePickup` (`in_progress`), and `approveReturn` (`completed`) trigger emails with blank `message` and generic title `"📢 Cập nhật đơn thuê"`.
-- **Admin Audit Trail Completeness:** `AdminUsersPage.jsx` filter lists `admin.dispute.resolve` and `admin.user.update_ekyc`, yet `resolveDispute` writes no `AuditLog` and no admin eKYC override endpoint exists.
+- **Admin Audit Trail Completeness:** `AdminUsersPage.jsx` filter lists `admin.dispute.resolve` and `admin.user.update_ekyc`; `resolveDispute` now logs `admin.dispute.resolve`, while no admin eKYC override endpoint exists for `admin.user.update_ekyc`.
 - **Frontend Role Guard & i18n:** `/admin/*` routes use `<ProtectedRoute />` which checks `isLoggedIn` only (not `user.role === 'admin'`); `vi.json` omits `rental.status.disputed` and most JSX pages use hardcoded Vietnamese strings.
 - **AI Price Suggestion without Gemini Key:** `items.controller.js:560` averages `ruleBasedPrice` with `aiSuggestedPrice` (initialized `null`), halving suggested price when `GEMINI_API_KEY` is absent.
 - **Auth Edge/Origin Rate Limiting & Edge HSTS (`docs/INFRASTRUCTURE.md` §1.1, §7.3, §12):** `POST /api/auth/register` lacks a dedicated backend limiter (uses general `apiLimiter` 300/15m); Cloudflare Auth Rate Limiting HTTP 429 behavior and Cloudflare Edge HSTS remain `TODO` (`nginx/nginx.tunnel.conf` serves HTTP `:80` behind Tunnel without HSTS).
@@ -122,4 +123,4 @@
   - **Ingress & Proxy:** Public traffic strictly via Cloudflare Tunnel `rentalhub-production` (ingress v4) → `http://nginx:80` (`nginx/nginx.tunnel.conf`, `client_max_body_size 10m`, real client IP via `CF-Connecting-IP` + Express `trust proxy = 1`; proxies `/api/` and `/socket.io/` to `backend:5000` so `/api-docs` is not proxied by `nginx.tunnel.conf`).
   - **Admin Access & Firewall:** SSH strictly via Google Cloud IAP (`35.235.240.0/20`) + key auth + UFW default-deny; Certbot host timer/cron disabled.
   - **External Services & Edge Security:** MongoDB Atlas (`MONGO_URI`), Cloudinary (`CLOUDINARY_*`), SMTP over 587/465 (GCP blocks outbound TCP 25); 2 Active Cloudflare WAF Custom Rules (scanner paths, non-standard ports) + 1 Active Rate Limiting Rule (`/api/auth/login`, `/api/auth/register`).
-- **Automated Tests:** No active unit/integration test suite exists (`backend/package.json` test script is default placeholder; `frontend/package.json` has no `test` script after Vite migration).
+- **Automated Tests:** Backend runs `node --test tests/*.test.js` (`ekyc.test.js`, `itemModeration.test.js`, `itemAvailability.test.js`, `disputeSyncAudit.test.js`); `frontend/package.json` has no `test` script after Vite migration.

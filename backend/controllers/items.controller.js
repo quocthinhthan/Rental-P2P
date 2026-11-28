@@ -302,8 +302,6 @@ const checkOwner = async (req, res, next) => {
   }
 };
 
-const ACTIVE_ITEM_RENTAL_STATUSES = ['pending_confirmation', 'confirmed', 'in_progress', 'disputed'];
-
 // PUT /api/items/:id
 const updateItem = async (req, res) => {
   const { name, description, category, pricePerDay, address, images, status, baseValue, depositPercentage, lat, lng } = req.body;
@@ -330,7 +328,7 @@ const updateItem = async (req, res) => {
     if (status === 'delisted' && item.status !== 'delisted') {
       const activeRental = await Rental.findOne({
         itemId: item._id,
-        status: { $in: ACTIVE_ITEM_RENTAL_STATUSES }
+        status: { $in: ACTIVE_BOOKING_STATUSES }
       }).select('_id code status');
       if (activeRental) {
         return res.status(400).json({
@@ -343,7 +341,7 @@ const updateItem = async (req, res) => {
     if (status === 'available' && item.status === 'rented') {
       const activeRental = await Rental.findOne({
         itemId: item._id,
-        status: { $in: ACTIVE_ITEM_RENTAL_STATUSES }
+        status: { $in: ACTIVE_BOOKING_STATUSES }
       }).select('_id code status');
       if (activeRental) {
         return res.status(400).json({
@@ -390,7 +388,7 @@ const deleteItem = async (req, res) => {
 
     const activeRental = await Rental.findOne({
       itemId: req.item._id,
-      status: { $in: ACTIVE_ITEM_RENTAL_STATUSES }
+      status: { $in: ACTIVE_BOOKING_STATUSES }
     }).select('_id code status');
     if (activeRental) {
       return res.status(400).json({

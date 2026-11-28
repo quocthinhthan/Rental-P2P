@@ -9,6 +9,7 @@ const { RentalStatus, PaymentStatus } = require('../enums/rental.enum');
 const { DisputeStatus, PenaltyType, DisputeWinner } = require('../enums/dispute.enum');
 const { ItemStatus } = require('../enums/item.enum');
 const trustScoreService = require('../services/trustScore.service');
+const { syncItemRuntimeStatus } = require('../services/itemAvailability.service');
 
 const MEDIATION_WINDOW_HOURS = 48;
 const SUSPENSION_DAYS = 7;
@@ -28,12 +29,6 @@ class DisputeConflictError extends Error {
   }
 }
 
-const withOptionalSession = (query, session) => (
-  session && query && typeof query.session === 'function'
-    ? query.session(session)
-    : query
-);
-
 const runWithOptionalTransaction = async (work) => {
   const session = await mongoose.startSession();
   let result;
@@ -52,53 +47,6 @@ const runWithOptionalTransaction = async (work) => {
   } finally {
     await session.endSession();
   }
-};
-
-const syncItemStatusAfterDispute = async (itemId, { session = null } = {}) => {
-  try {
-    const itemAvailabilityService = require('../services/itemAvailability.service');
-    if (itemAvailabilityService && typeof itemAvailabilityService.syncItemRuntimeStatus === 'function') {
-      return itemAvailabilityService.syncItemRuntimeStatus(itemId, { session });
-    }
-  } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND') {
-      throw error;
-    }
-  }
-
-  let itemQuery = Item.findById(itemId);
-  if (itemQuery && typeof itemQuery.select === 'function') {
-    itemQuery = itemQuery.select('_id status delistedByAdmin');
-  }
-  const item = await withOptionalSession(itemQuery, session);
-
-  if (!item || item.status === ItemStatus.DELISTED || item.delistedByAdmin) {
-    return item;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  let rentalQuery = Rental.findOne({
-    itemId,
-    status: { $in: [RentalStatus.CONFIRMED, RentalStatus.IN_PROGRESS, RentalStatus.DISPUTED] },
-    startDate: { $lt: tomorrow },
-    endDate: { $gte: today }
-  });
-  if (rentalQuery && typeof rentalQuery.select === 'function') {
-    rentalQuery = rentalQuery.select('_id');
-  }
-  const currentRental = await withOptionalSession(rentalQuery, session);
-
-  const nextStatus = currentRental ? ItemStatus.RENTED : ItemStatus.AVAILABLE;
-  if (item.status !== nextStatus) {
-    item.status = nextStatus;
-    await item.save(session ? { session } : undefined);
-  }
-
-  return item;
 };
 
 const writeDisputeAuditLog = async ({ req, dispute, before, after, reason, metadata = {} }) => {
@@ -523,7 +471,7 @@ exports.resolveDispute = async (req, res) => {
         session ? { session } : undefined
       );
 
-      const updatedItem = await syncItemStatusAfterDispute(item._id, { session });
+      const updatedItem = await syncItemRuntimeStatus(item._id, { session });
 
       if (penaltyType !== PenaltyType.NONE) {
         await applyPenalty(userToPenalize, penaltyType, { session });
@@ -632,7 +580,7 @@ exports.withdrawDispute = async (req, res) => {
         session ? { session } : undefined
       );
 
-      const updatedItem = await syncItemStatusAfterDispute(item._id, { session });
+      const updatedItem = await syncItemRuntimeStatus(item._id, { session });
 
       return { updatedDispute: claimedDispute, syncedItem: updatedItem };
     });

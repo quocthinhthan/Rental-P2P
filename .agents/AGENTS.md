@@ -33,7 +33,7 @@ Backend and frontend are the main working areas. Keep `mobile/` out of searches 
 - `backend/enums/`: backend source of truth for item, rental/payment, dispute, and eKYC status constants.
 - `backend/middleware/auth.middleware.js` & `ekycAuth.middleware.js`: shared auth/permission middleware (`protect`, `admin`, `checkVerified`, and scoped `protectEkycMobileSession`).
 - `backend/middleware/rateLimit.middleware.js`: Express rate limiters (`apiLimiter`, `loginLimiter`, `forgotPasswordLimiter`, `uploadLimiter`, `aiLimiter`, `ekycSessionLimiter`, `ekycClaimLimiter`, `ekycSubmitLimiter`).
-- `backend/services/`: shared domain logic (`chatAuthorization.service.js`, `trustScore.service.js`, `viettelAi.provider.js`, `ekyc.service.js`, `ekycRealtime.service.js`).
+- `backend/services/`: shared domain logic (`chatAuthorization.service.js`, `trustScore.service.js`, `itemAvailability.service.js`, `viettelAi.provider.js`, `ekyc.service.js`, `ekycRealtime.service.js`).
 - `backend/config/`: MongoDB, RabbitMQ, and Cloudinary configuration.
 - `backend/scripts/`: migration, backfill, seed, and media import scripts. Most require a valid `MONGO_URI`.
 - `backend/constants/` and `backend/utils/`: reusable messages (`messages.constant.js`) and helpers (`codeGenerator.js`, `urlValidation.js`).
@@ -118,10 +118,8 @@ Rentals can be cancelled before pickup proof is recorded, subject to role and st
 - Pickup requires `pickupImages`. Both pickup and complete optionally accept `condition`, `accessories`, `notes` (and `damages` for complete) to populate `pickupReport`/`returnReport`. Saving pickup/complete does NOT advance rental status — it waits for the counterpart to call `approve-pickup`/`approve-return`.
 - `approve-pickup` and `approve-return` can optionally accept edited report fields (`condition`, `accessories`, `notes`, `damages`, `pickupImages`/`returnImages`) to let the reviewer override the original entry before confirming. Advancing rental status only happens on these approve calls.
 - Completion requires `returnImages`.
-- Booking availability is date-range based. `Item.status = rented` is not a global lock for all future rentals; new rental/payment/confirmation checks must reject only overlapping active bookings.
-- Rental creation, payment, and confirmation check for overlapping `pending_confirmation`, `confirmed`, `in_progress`, or `disputed` rentals through `findOverlappingBooking` in `backend/controllers/rentals.controller.js`.
-- Owner `blockedDates` are stored on the item and are separate from rental status. Search and the item detail calendar use them.
-- When the owner adds a blocked date, `items.controller.js` checks for overlapping active rentals and existing owner blocks. Its rental status set currently differs from the booking check below.
+- Booking availability is date-range based (`backend/services/itemAvailability.service.js`). `Item.status = rented` is not a global lock; `createRentalRequest` blocks past `startDate`, and booking/VNPay/confirm/search/blocked-dates/calendar all check `blockedDates` and `ACTIVE_BOOKING_STATUSES` (`pending_confirmation`, `confirmed`, `in_progress`, `disputed`). `approvePickup`, `approveReturn`, `resolveDispute`, and `withdrawDispute` call `syncItemRuntimeStatus`.
+- Admin item governance: `Item.delistedByAdmin` blocks owner `PUT /api/items/:id` (`403`); `DELETE /api/items/:id` blocks hard delete if any active or historical rental exists (`400`); `resolveItemReport` (`no_action`/`warn_owner`) never auto-relists; `resolveDispute` uses atomic `409` status guards and logs `admin.dispute.resolve` to `AuditLog`.
 - Backend authorization rules decide which user can perform each action.
 - Frontend should display and submit data according to backend state, not local assumptions.
 - Rental statuses must be verified from backend implementation before conditional UI or API changes.
@@ -136,7 +134,6 @@ Rentals can be cancelled before pickup proof is recorded, subject to role and st
 ## Current differences between checks
 
 - **Dispute eligibility:** `backend/controllers/disputes.controller.js` accepts disputes from rental parties for `confirmed` (including before pickup), `in_progress`, and `completed` for up to seven days from `updatedAt`, with `endDate` as a fallback. `frontend/src/pages/RentalDetailPage.jsx` exposes the action only for `confirmed` and `in_progress`, and hides it when there is a dispute record or the current user has already reviewed the rental. Keep this distinction when describing or changing the flow.
-- **Calendar availability:** Listing date filters and owner blocked-date creation in `backend/controllers/items.controller.js`, and `bookedDates` in `backend/controllers/views.controller.js`, currently check `pending_confirmation`, `confirmed`, and `in_progress`. Rental booking checks also include `disputed`. An item can therefore appear free in search or on its calendar but fail the booking overlap check. Conversely, search and the web calendar respect owner `blockedDates`, while current rental booking handlers check overlapping rentals without enforcing owner `blockedDates`.
 
 ## Important APIs
 

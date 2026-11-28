@@ -16,6 +16,7 @@ const {
   recalculateUserTrustScore,
   getTrustLevelFromScore
 } = require('../services/trustScore.service');
+const { ACTIVE_BOOKING_STATUSES } = require('../services/itemAvailability.service');
 
 const MAX_LIMIT = 100;
 const RISKY_TRUST_SCORE_THRESHOLD = 40;
@@ -91,14 +92,7 @@ const countByStatus = async (Model, field = 'status') => {
 
 const findActiveRentalForItem = (itemId) => Rental.findOne({
   itemId,
-  status: {
-    $in: [
-      RentalStatus.PENDING_CONFIRMATION,
-      RentalStatus.CONFIRMED,
-      RentalStatus.IN_PROGRESS,
-      RentalStatus.DISPUTED
-    ]
-  }
+  status: { $in: ACTIVE_BOOKING_STATUSES }
 }).select('_id status');
 
 // GET /api/admin/users
