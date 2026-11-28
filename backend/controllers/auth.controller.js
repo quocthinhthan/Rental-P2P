@@ -47,17 +47,8 @@ exports.updateProfile = async (req, res) => {
     return res.status(404).json({ message: 'Không tìm thấy User' });
   }
 
-  // Khóa cứng thông tin định danh một khi đã xác thực (verified)
+  // Khóa cứng thông tin định danh thông qua API cập nhật hồ sơ thông thường
   if (user.ekycStatus === 'verified') {
-    if (req.body.idCardNumber && req.body.idCardNumber !== user.idCardNumber) {
-      return res.status(400).json({ message: 'Không thể thay đổi số CCCD sau khi tài khoản đã được xác thực!' });
-    }
-    if (req.body.idCardImages && Array.isArray(req.body.idCardImages) && req.body.idCardImages.length > 0) {
-      const areImagesDifferent = JSON.stringify(req.body.idCardImages) !== JSON.stringify(user.idCardImages);
-      if (areImagesDifferent) {
-        return res.status(400).json({ message: 'Không thể thay đổi ảnh CCCD sau khi tài khoản đã được xác thực!' });
-      }
-    }
     if (req.body.fullName && req.body.fullName !== user.fullName) {
       return res.status(400).json({ message: 'Không thể thay đổi họ tên sau khi tài khoản đã được xác thực theo CCCD!' });
     }
@@ -89,6 +80,10 @@ exports.updateProfile = async (req, res) => {
     address: updatedUser.address,
     avatarUrl: updatedUser.avatarUrl,
     ekycStatus: updatedUser.ekycStatus,
+    verificationMethod: updatedUser.verificationMethod,
+    livenessVerified: updatedUser.livenessVerified,
+    ekycVerifiedAt: updatedUser.ekycVerifiedAt,
+    ekycExpiresAt: updatedUser.ekycExpiresAt,
     bankAccount: updatedUser.bankAccount,
     trustScore: updatedTrustUser?.trustScore,
     trustLevel: updatedTrustUser ? getTrustLevelFromScore(updatedTrustUser.trustScore) : undefined
@@ -119,6 +114,10 @@ exports.loginUser = async (req, res) => {
           avatarUrl: user.avatarUrl,
           role: user.role,
           ekycStatus: user.ekycStatus,
+          verificationMethod: user.verificationMethod,
+          livenessVerified: user.livenessVerified,
+          ekycVerifiedAt: user.ekycVerifiedAt,
+          ekycExpiresAt: user.ekycExpiresAt,
           bankAccount: user.bankAccount,
           trustScore: user.trustScore,
           averageRating: user.averageRating,
@@ -153,60 +152,13 @@ exports.logoutUser = (req, res) => {
 // Cách 2 (Phức tạp - Blacklist token): Cần dùng Redis để lưu token đã logout.
 // Với MVP, chúng ta chọn cách 1.
 
-// 2. [USER] POST /api/auth/verify-ekyc (Upload ảnh -> Gọi FPT -> Lưu vào DB -> Lấy Tick xanh)
+// 2. [DEPRECATED] POST /api/auth/verify-ekyc
+// Đã chuyển sang quy trình Viettel AI 3 bước có phiên xác minh (/api/ekyc/sessions)
 exports.verifyEKYC = async (req, res) => {
-  const { idCardFrontUrl } = req.body; 
-  const userId = req.user._id; // BẮT BUỘC ĐÃ LOGIN MỚI LẤY ĐƯỢC ID
-
-  try {
-    if (!idCardFrontUrl) return res.status(400).json({ message: 'Vui lòng cung cấp URL ảnh mặt trước CCCD' });
-
-    const user = await User.findById(userId);
-    if (user.ekycStatus === 'verified') return res.status(400).json({ message: 'Tài khoản đã được xác thực!' });
-
-    console.log('\n[DEBUG - eKYC] 1. Tải ảnh từ URL...');
-    const imageResponse = await axios.get(idCardFrontUrl, { responseType: 'stream' });
-
-    console.log('[DEBUG - eKYC] 2. Gửi ảnh sang FPT.AI...');
-    const form = new FormData();
-    form.append('image', imageResponse.data);
-
-    const fptResponse = await axios.post('https://api.fpt.ai/vision/idr/vnm', form, {
-      headers: { 'api-key': process.env.FPT_AI_API_KEY, ...form.getHeaders() }
-    });
-
-    const fptData = fptResponse.data;
-    if (fptData.errorCode !== 0) return res.status(400).json({ message: 'AI không đọc được ảnh!', fptError: fptData.errorMessage });
-
-    const extractedData = fptData.data[0];
-    const realIdNumber = extractedData.id; 
-    const realName = extractedData.name;   
-
-    console.info('[eKYC] AI verification succeeded', { userId: String(user._id) });
-
-    // GHI NHẬN TICK XANH CHO USER NÀY VÀO DB
-    user.ekycStatus = 'verified';
-    user.idCardNumber = realIdNumber;
-    user.idCardImages = [idCardFrontUrl];
-    // >>> THÊM DÒNG NÀY: Ghi đè tên ảo bằng tên thật trên CCCD <<<
-    user.fullName = realName; 
-    await user.save();
-    const updatedTrustUser = await recalculateUserTrustScore(user._id);
-
-    res.status(200).json({ 
-      message: 'Xác thực danh tính thành công! Hồ sơ của bạn đã được cập nhật theo CCCD.',
-      ekycStatus: user.ekycStatus,
-      trustScore: updatedTrustUser?.trustScore,
-      trustLevel: updatedTrustUser ? getTrustLevelFromScore(updatedTrustUser.trustScore) : undefined,
-      extractedData: { 
-        idNumber: realIdNumber, 
-        fullName: realName // Trả về tên thật cho Frontend biết mà cập nhật giao diện
-      }
-    });
-
-  } catch (error) {
-    res.status(500).json({ message: 'Lỗi hệ thống eKYC', error: error.message });
-  }
+  return res.status(410).json({
+    code: 'LEGACY_EKYC_DEPRECATED',
+    message: 'Phương thức xác thực một bước cũ đã ngừng hỗ trợ. Vui lòng thực hiện xác minh danh tính (CCCD hai mặt và khuôn mặt) tại mục Tài khoản.'
+  });
 };
 
 // [PUBLIC] POST /api/auth/forgot-password

@@ -28,19 +28,20 @@ Backend and frontend are the main working areas. Keep `mobile/` out of searches 
 - Main entry point: `backend/server.js`. This file loads env, connects MongoDB, tries RabbitMQ, configures Socket.IO chat auth, mounts REST routes, and exposes `/api-docs`.
 - `backend/app.js` is an older/exportable Express app shape. Check whether a task actually uses it before editing it; the npm entry currently points to `server.js`.
 - `backend/routes/`: URL definitions and route-level middleware. Add or verify endpoints here first.
-- `backend/controllers/`: REST business logic for auth, items, rentals, disputes, admin, views, users, and reviews.
-- `backend/models/`: Mongoose schemas for `User`, `Item`, `Rental`, `Contract`, `Dispute`, `Message`, `Review`, `ItemReport`, and `AuditLog`.
-- `backend/enums/`: backend source of truth for item, rental/payment, and dispute status constants.
-- `backend/middleware/auth.middleware.js`: shared auth/permission middleware: `protect`, `admin`, `checkVerified`.
-- `backend/middleware/rateLimit.middleware.js`: Express rate limiters (`apiLimiter`, `loginLimiter`, `forgotPasswordLimiter`, `uploadLimiter`, `aiLimiter`).
-- `backend/services/`: shared domain logic (`chatAuthorization.service.js`, `trustScore.service.js`).
+- `backend/controllers/`: REST business logic for auth, ekyc, items, rentals, disputes, admin, views, users, and reviews.
+- `backend/models/`: Mongoose schemas for `User`, `IdentityProfile`, `VerificationSession`, `EkycTempAsset`, `Item`, `Rental`, `Contract`, `Dispute`, `Message`, `Review`, `ItemReport`, and `AuditLog`.
+- `backend/enums/`: backend source of truth for item, rental/payment, dispute, and eKYC status constants.
+- `backend/middleware/auth.middleware.js` & `ekycAuth.middleware.js`: shared auth/permission middleware (`protect`, `admin`, `checkVerified`, and scoped `protectEkycMobileSession`).
+- `backend/middleware/rateLimit.middleware.js`: Express rate limiters (`apiLimiter`, `loginLimiter`, `forgotPasswordLimiter`, `uploadLimiter`, `aiLimiter`, `ekycSessionLimiter`, `ekycClaimLimiter`, `ekycSubmitLimiter`).
+- `backend/services/`: shared domain logic (`chatAuthorization.service.js`, `trustScore.service.js`, `viettelAi.provider.js`, `ekyc.service.js`, `ekycRealtime.service.js`).
 - `backend/config/`: MongoDB, RabbitMQ, and Cloudinary configuration.
 - `backend/scripts/`: migration, backfill, seed, and media import scripts. Most require a valid `MONGO_URI`.
 - `backend/constants/` and `backend/utils/`: reusable messages (`messages.constant.js`) and helpers (`codeGenerator.js`, `urlValidation.js`).
 
 Mounted backend API groups in `server.js`:
 
-- `/api/auth`: register, login, logout, current user, profile, eKYC, forgot/reset password.
+- `/api/auth`: register, login, logout, current user, profile, forgot/reset password (`POST /api/auth/verify-ekyc` deprecated `410`).
+- `/api/ekyc`: Viettel AI eKYC (`status`, QR/direct `sessions`, single-use `claim`, `consent`, 2-sided CCCD `documents`, read-only `confirm-document`, 5-pose `liveness`; `DOCUMENT_AND_LIVENESS`, see `docs/EKYC_VIETTEL_AI.md`).
 - `/api/items`: item search/list, categories, bestsellers, create/update/delete, price suggestion, item report, owner blocked-dates management.
 - `/api/rentals`: rental request, VNPay URL/return, confirm/reject, contract, signing, pickup (with checklist), approve-pickup, completion (with checklist), approve-return, rental messages.
 - `/api/views`: BFF-style read endpoints for item detail (includes blockedDates + isFavorited), the current user's rentals, and user financial/revenue stats.
@@ -74,12 +75,12 @@ Mounted backend API groups in `server.js`:
 
 ### Local Scripts
 
-- Usual local startup on Windows: run `.\start-all.ps1` from repo root to launch backend, frontend, and notification worker (checks RabbitMQ service and starts local MongoDB only when `MONGO_URI` targets loopback). Production runs on Docker via `docker-compose.prod.yml` + `nginx/nginx.tunnel.conf` (see `docs/INFRASTRUCTURE.md`).
-- Backend and worker load the root `.env`. Backend needs MongoDB and `JWT_SECRET` to start, and connects to RabbitMQ in the background when `RABBITMQ_ENABLED=true`. Email flows require RabbitMQ, worker, and SMTP config.
+- Usual local startup on Windows: run `.\start-all.ps1` from repo root to launch backend, frontend, and notification worker. Production runs on Docker via `docker-compose.prod.yml` + `nginx/nginx.tunnel.conf` (see `docs/INFRASTRUCTURE.md`).
+- Backend and worker load root `.env` (`MONGO_URI`, `JWT_SECRET`; connects RabbitMQ when `RABBITMQ_ENABLED=true`).
 - Backend only (`backend/`): `npm run dev` (nodemon) or `npm start` (`node server.js`).
-- Frontend only (`frontend/`): `npm start` or `npm run dev` runs Vite (`frontend/vite.config.js`, port from `FRONTEND_PORT || 3000`); `npm run build` outputs to `build/`.
-- Automated tests: neither `backend/` (placeholder `test` script) nor `frontend/` (no `test` script after Vite migration) currently has an active test runner.
-- Demo data (`backend/`): `node scripts/seed-items.js` creates missing items by existing owners and exact name with empty images. `node scripts/import-seed-item-images.js --prepare | --apply` manages local demo photos and Cloudinary upload.
+- Frontend only (`frontend/`): `npm start` or `npm run dev` runs Vite (`FRONTEND_PORT || 3000`); `npm run build` outputs to `build/`.
+- Automated tests: `backend/` runs `npm test` (`node --test tests/*.test.js`); `frontend/` has no active test script after Vite migration.
+- Demo data (`backend/`): `node scripts/seed-items.js` creates missing items; `node scripts/import-seed-item-images.js --prepare | --apply` manages local demo photos and Cloudinary upload.
 
 ## Working Principles
 

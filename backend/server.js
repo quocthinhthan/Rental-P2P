@@ -17,10 +17,19 @@ const { connectRabbitMQ } = require('./config/rabbitmq'); // >>> THÊM: Import h
 
 const User = require('./models/User.model');
 const Message = require('./models/Message.model');
+const VerificationSession = require('./models/VerificationSession.model');
 const {
   authorizeChatRead,
   authorizeChatWrite
 } = require('./services/chatAuthorization.service');
+const {
+  getEkycRoomName,
+  setEkycSocketServer
+} = require('./services/ekycRealtime.service');
+const {
+  defaultEkycService,
+  toDesktopSafeSessionPayload
+} = require('./services/ekyc.service');
 const { apiLimiter } = require('./middleware/rateLimit.middleware');
 
 const normalizeOrigin = (origin) => {
@@ -68,7 +77,7 @@ const corsOriginValidator = (origin, callback) => {
 const corsOptions = {
   origin: corsOriginValidator,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Ekyc-Session-Token']
 };
 
 const createSocketRateLimiter = ({ windowMs = 10000, maxEvents = 10 } = {}) => {
@@ -120,6 +129,7 @@ const io = new Server(server, {
     methods: ['GET', 'POST']
   }
 });
+setEkycSocketServer(io);
 
 // Lắng nghe các sự kiện Real-time
 io.use(async (socket, next) => {
@@ -214,6 +224,32 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 3. Theo dõi phiên xác minh danh tính (eKYC) trên Desktop
+  socket.on('join_ekyc_session', async (sessionId) => {
+    try {
+      const normalizedId = typeof sessionId === 'string' ? sessionId.trim() : '';
+      if (!normalizedId) return;
+
+      const session = await VerificationSession.findOne({ sessionId: normalizedId });
+      if (!session || String(session.userId) !== String(socket.user._id)) {
+        socket.emit('ekyc_error', { message: 'Bạn không có quyền theo dõi phiên xác minh này.' });
+        return;
+      }
+
+      socket.join(getEkycRoomName(normalizedId));
+      socket.emit('ekyc_session_updated', toDesktopSafeSessionPayload(session));
+    } catch {
+      socket.emit('ekyc_error', { message: 'Không thể kết nối theo dõi phiên xác minh.' });
+    }
+  });
+
+  socket.on('leave_ekyc_session', (sessionId) => {
+    const normalizedId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    if (normalizedId) {
+      socket.leave(getEkycRoomName(normalizedId));
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`[SOCKET] User disconnected: ${socket.id}`);
   });
@@ -249,8 +285,10 @@ const userRoutes = require('./routes/users.routes');
 const reviewRoutes = require('./routes/reviews.routes');
 
 const disputeRoutes = require('./routes/disputes.routes'); 
+const ekycRoutes = require('./routes/ekyc.routes');
 
 app.use('/api/auth', authRoutes);
+app.use('/api/ekyc', ekycRoutes);
 app.use('/api/items', itemRoutes);
 app.use('/api/rentals', rentalRoutes);
 app.use('/api/views', viewRoutes);
@@ -272,6 +310,13 @@ const startServer = async () => {
   try {
     // 1. Kết nối đến DB và chờ hoàn tất
     await connectDB();
+
+    // Dọn dẹp định kỳ các phiên eKYC hết hạn và dữ liệu tạm thời
+    setInterval(() => {
+      defaultEkycService.cleanupExpiredSessionsAndAssets().catch((cleanupErr) => {
+        console.error('[eKYC] Periodic cleanup error:', cleanupErr.message);
+      });
+    }, 2 * 60 * 1000).unref();
 
     // RabbitMQ phục vụ thông báo; kết nối lại ở nền nếu broker chưa sẵn sàng.
     connectRabbitMQ();

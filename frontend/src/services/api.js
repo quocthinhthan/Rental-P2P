@@ -24,9 +24,13 @@ api.interceptors.request.use(
       startGlobalLoading();
     }
 
+    if (config.ekycSessionToken) {
+      config.headers['X-Ekyc-Session-Token'] = config.ekycSessionToken;
+    }
+
     const token = getStoredToken();
 
-    if (token) {
+    if (token && !config.omitAuthBearer) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
@@ -66,6 +70,89 @@ export const resetPassword = (token, password) => api.put(`/auth/reset-password/
 export const updateProfile = (payload) => api.put('/auth/profile', payload);
 
 export const verifyEKYC = (idCardFrontUrl) => api.post('/auth/verify-ekyc', { idCardFrontUrl });
+
+// === Viettel AI eKYC ===
+export const getEkycStatus = () => api.get('/ekyc/status', { skipGlobalLoading: true });
+
+export const createEkycSession = (initiationMode = 'QR') =>
+  api.post('/ekyc/sessions', { initiationMode }, { skipGlobalLoading: true });
+
+export const claimEkycSession = (token) =>
+  api.post('/ekyc/sessions/claim', { token }, {
+    skipGlobalLoading: true,
+    omitAuthBearer: true,
+  });
+
+export const getEkycSessionOwner = (sessionId) =>
+  api.get(`/ekyc/sessions/${encodeURIComponent(sessionId)}`, { skipGlobalLoading: true });
+
+export const getEkycSessionMobile = (sessionId, ekycSessionToken) =>
+  api.get(`/ekyc/sessions/${encodeURIComponent(sessionId)}`, {
+    skipGlobalLoading: true,
+    omitAuthBearer: true,
+    ekycSessionToken,
+  });
+
+export const submitEkycConsent = (sessionId, accepted, ekycSessionToken) =>
+  api.post(
+    `/ekyc/sessions/${encodeURIComponent(sessionId)}/consent`,
+    { accepted },
+    {
+      skipGlobalLoading: true,
+      omitAuthBearer: true,
+      ekycSessionToken,
+    }
+  );
+
+export const submitEkycDocuments = (sessionId, frontBlob, backBlob, ekycSessionToken) => {
+  const formData = new FormData();
+  formData.append('frontImage', frontBlob, 'cccd-front.jpg');
+  formData.append('backImage', backBlob, 'cccd-back.jpg');
+
+  return api.post(`/ekyc/sessions/${encodeURIComponent(sessionId)}/documents`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    skipGlobalLoading: true,
+    omitAuthBearer: true,
+    ekycSessionToken,
+  });
+};
+
+export const confirmEkycDocument = (sessionId, action, ekycSessionToken) =>
+  api.post(
+    `/ekyc/sessions/${encodeURIComponent(sessionId)}/confirm-document`,
+    { action },
+    {
+      skipGlobalLoading: true,
+      omitAuthBearer: true,
+      ekycSessionToken,
+    }
+  );
+
+export const submitEkycLivenessPose = (sessionId, pose, liveBlob, ekycSessionToken) => {
+  const formData = new FormData();
+  formData.append('file', liveBlob, `liveness-${String(pose || 'pose').toLowerCase()}.jpg`);
+  formData.append('pose', pose);
+
+  return api.post(`/ekyc/sessions/${encodeURIComponent(sessionId)}/liveness`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    skipGlobalLoading: true,
+    omitAuthBearer: true,
+    ekycSessionToken,
+  });
+};
+
+export const cancelEkycSessionOwner = (sessionId) =>
+  api.post(`/ekyc/sessions/${encodeURIComponent(sessionId)}/cancel`, {}, { skipGlobalLoading: true });
+
+export const cancelEkycSessionMobile = (sessionId, ekycSessionToken) =>
+  api.post(`/ekyc/sessions/${encodeURIComponent(sessionId)}/cancel`, {}, {
+    skipGlobalLoading: true,
+    omitAuthBearer: true,
+    ekycSessionToken,
+  });
+
+export const requireAdminUserEkyc = (userId, reason = '') =>
+  api.patch(`/admin/users/${encodeURIComponent(userId)}/require-ekyc`, { reason });
 
 // === Items ===
 export const getItems = (params = {}) => {
@@ -293,6 +380,18 @@ const apiService = {
   resetPassword,
   updateProfile,
   verifyEKYC,
+  getEkycStatus,
+  createEkycSession,
+  claimEkycSession,
+  getEkycSessionOwner,
+  getEkycSessionMobile,
+  submitEkycConsent,
+  submitEkycDocuments,
+  confirmEkycDocument,
+  submitEkycLivenessPose,
+  cancelEkycSessionOwner,
+  cancelEkycSessionMobile,
+  requireAdminUserEkyc,
   uploadImage,
   deleteImage,
   getMe,

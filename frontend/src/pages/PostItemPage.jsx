@@ -351,6 +351,26 @@ function PostItemPage() {
   };
 
   const onSubmit = async (data) => {
+    const isEkycValid = user?.ekycStatus === 'verified'
+      && (!user?.ekycExpiresAt || new Date(user.ekycExpiresAt) > new Date());
+
+    if (!isEditMode && !isEkycValid) {
+      Swal.fire({
+        title: 'Yêu cầu xác minh danh tính! 🛡️',
+        text: 'Bạn cần hoàn tất xác minh danh tính (eKYC) trước khi đăng vật phẩm cho thuê để đảm bảo an toàn giao dịch.',
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: 'Xác minh ngay',
+        cancelButtonText: 'Để sau',
+        confirmButtonColor: '#0d6efd',
+      }).then((result) => {
+        if (result.isConfirmed) {
+          navigate('/account');
+        }
+      });
+      return;
+    }
+
     const hasBankDetails = user?.bankAccount?.bankName && user?.bankAccount?.accountNumber && user?.bankAccount?.accountHolder;
     if (!hasBankDetails) {
       Swal.fire({
@@ -433,6 +453,17 @@ function PostItemPage() {
 
       <div className="container-fluid bg-light overflow-hidden py-5">
         <div className="container py-4">
+          {!isEditMode && (user?.ekycStatus !== 'verified' || (user?.ekycExpiresAt && new Date(user.ekycExpiresAt) <= new Date())) && (
+            <div className="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4" role="alert">
+              <div>
+                <i className="fas fa-shield-alt me-2" />
+                <strong>Chưa hoàn tất xác minh danh tính (eKYC):</strong> Vui lòng xác minh CCCD hai mặt &amp; khuôn mặt trước khi đăng sản phẩm cho thuê.
+              </div>
+              <Link to="/account" className="btn btn-sm btn-primary">
+                Xác minh ngay
+              </Link>
+            </div>
+          )}
           <form onSubmit={handleSubmit(onSubmit)} className="post-item-form">
             {apiError && (
               <div className="alert alert-danger" role="alert">{apiError}</div>

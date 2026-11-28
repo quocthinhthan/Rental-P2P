@@ -9,8 +9,13 @@ const protect = async (req, res, next) => {
     try {
       token = req.headers.authorization.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Reject scoped single-purpose tokens (e.g. eKYC mobile session tokens)
+      if (!decoded || !decoded.id || decoded.purpose) {
+        return res.status(401).json({ message: 'Unauthorized, invalid token scope' });
+      }
       
-      const user = await User.findById(decoded.id).select('-password');
+      const user = await User.findById(decoded.id).select('-password -resetPasswordToken -resetPasswordExpire');
 
       if (!user) {
         return res.status(401).json({ message: 'Tài khoản không tồn tại' });
@@ -53,16 +58,23 @@ const admin = (req, res, next) => {
   }
 };
 
-// Middleware kiểm tra xem user đã eKYC chưa (Có tick xanh chưa)
+// Middleware kiểm tra xem user đã eKYC chưa (Có tick xanh và giấy tờ còn hiệu lực)
 const checkVerified = (req, res, next) => {
   if (req.user && req.user.ekycStatus === 'verified') {
-    next(); // Có tick xanh -> Cho qua
-  } else {
-    res.status(403).json({ 
-      message: 'Forbidden: Vui lòng xác thực danh tính (eKYC) để sử dụng tính năng này!',
-      ekycStatus: req.user ? req.user.ekycStatus : 'unknown'
-    });
+    if (req.user.ekycExpiresAt && new Date() > new Date(req.user.ekycExpiresAt)) {
+      return res.status(403).json({
+        code: 'EKYC_EXPIRED',
+        message: 'Forbidden: Giấy tờ tùy thân (CCCD) đã hết hạn hiệu lực. Vui lòng xác thực danh tính (eKYC) lại để sử dụng tính năng này!',
+        ekycStatus: 'expired'
+      });
+    }
+    return next(); // Có tick xanh và còn hạn -> Cho qua
   }
+  return res.status(403).json({ 
+    code: 'EKYC_REQUIRED',
+    message: 'Forbidden: Vui lòng xác thực danh tính (eKYC) để sử dụng tính năng này!',
+    ekycStatus: req.user ? req.user.ekycStatus : 'unknown'
+  });
 };
 
 module.exports = { protect, admin, checkVerified };

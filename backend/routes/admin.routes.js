@@ -4,6 +4,7 @@ const router = express.Router();
 const {
   getAllUsers,
   updateUserStatus,
+  requireUserEkycReverification,
   getAdminUserDetail,
   getAdminAuditLogs,
   updateItemStatus,
@@ -30,6 +31,9 @@ router.get('/users/:id', getAdminUserDetail);
 
 // PATCH /api/admin/users/:id/status
 router.patch('/users/:id/status', updateUserStatus);
+
+// PATCH /api/admin/users/:id/require-ekyc
+router.patch('/users/:id/require-ekyc', requireUserEkycReverification);
 
 // GET /api/admin/audit-logs
 router.get('/audit-logs', getAdminAuditLogs);

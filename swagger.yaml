@@ -27,6 +27,8 @@ tags:
     description: Administrative operations (Requires Admin Role).
   - name: Reviews
     description: Đánh giá và tính điểm uy tín (Trust-building)
+  - name: eKYC
+    description: Xác minh danh tính người dùng qua Viettel AI (ID Pack Spoof Check, Document OCR, Full 5-Pose Face Liveness)
 
 paths:
   # ===============================================================
@@ -139,12 +141,159 @@ paths:
           description: Unauthorized
   /auth/verify-ekyc:
     post:
+      deprecated: true
       tags:
         - Auth
-      summary: Xác thực eKYC (AI Đọc CCCD)
-      description: Gửi URL ảnh Căn cước công dân để FPT.AI tự động nhận diện và cập nhật thông tin.
+      summary: "[Deprecated] Xác thực eKYC một bước cũ"
+      description: Đã ngừng hỗ trợ. Chuyển sang quy trình phiên xác minh `/api/ekyc/sessions`.
       security:
         - bearerAuth: []
+      responses:
+        '410':
+          description: Endpoint cũ đã ngừng hỗ trợ
+
+  # ===============================================================
+  # Viettel AI eKYC Endpoints
+  # ===============================================================
+  /ekyc/status:
+    get:
+      tags:
+        - eKYC
+      summary: Lấy trạng thái xác minh danh tính của tài khoản hiện tại
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Trạng thái xác minh, hiệu lực giấy tờ và phiên đang hoạt động (nếu có)
+
+  /ekyc/sessions:
+    post:
+      tags:
+        - eKYC
+      summary: Tạo phiên xác minh danh tính (QR cho Desktop hoặc DIRECT cho Mobile)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                initiationMode:
+                  type: string
+                  enum: [QR, DIRECT]
+      responses:
+        '201':
+          description: Đã tạo phiên xác minh mới
+        '409':
+          description: Tài khoản đã xác minh danh tính hợp lệ
+
+  /ekyc/sessions/claim:
+    post:
+      tags:
+        - eKYC
+      summary: Điện thoại nhận phiên xác minh một lần từ mã QR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Đổi handoff token thành ekycSessionToken ngắn hạn thành công
+        '409':
+          description: Mã QR đã được sử dụng trên thiết bị khác
+        '410':
+          description: Phiên hết hạn hoặc đã bị hủy
+
+  /ekyc/sessions/{sessionId}:
+    get:
+      tags:
+        - eKYC
+      summary: Lấy trạng thái tiến trình của phiên xác minh
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Trạng thái phiên xác minh
+
+  /ekyc/sessions/{sessionId}/consent:
+    post:
+      tags:
+        - eKYC
+      summary: Ghi nhận đồng ý xử lý dữ liệu cá nhân trên thiết bị di động
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accepted]
+              properties:
+                accepted:
+                  type: boolean
+      responses:
+        '200':
+          description: Đã ghi nhận đồng ý
+
+  /ekyc/sessions/{sessionId}/documents:
+    post:
+      tags:
+        - eKYC
+      summary: Tải lên ảnh CCCD mặt trước/mặt sau để kiểm tra giả mạo và OCR
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [frontImage, backImage]
+              properties:
+                frontImage:
+                  type: string
+                  format: binary
+                backImage:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Kiểm tra giấy tờ và bóc tách OCR thành công
+        '422':
+          description: Giấy tờ không hợp lệ, hết hạn hoặc không đọc được OCR
+
+  /ekyc/sessions/{sessionId}/confirm-document:
+    post:
+      tags:
+        - eKYC
+      summary: Xác nhận thông tin OCR hoặc yêu cầu chụp lại giấy tờ
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -152,12 +301,76 @@ paths:
             schema:
               type: object
               properties:
-                idCardFrontUrl:
+                action:
                   type: string
-                  description: URL ảnh mặt trước CCCD (Link ảnh trực tiếp có đuôi .jpg, .png)
+                  enum: [CONFIRM, RETAKE]
       responses:
         '200':
-          description: eKYC Thành công  
+          description: Cập nhật bước xác nhận thành công
+
+  /ekyc/sessions/{sessionId}/liveness:
+    post:
+      tags:
+        - eKYC
+      summary: Tải ảnh chụp từng tư thế khuôn mặt (Portrait, Left, Right, Top, Bottom) để kiểm tra thực thể sống
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, pose]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                pose:
+                  type: string
+                  enum: [Portrait, Left, Right, Top, Bottom]
+      responses:
+        '200':
+          description: Tư thế hiện tại đạt yêu cầu (hoặc hoàn tất 5/5 tư thế)
+        '409':
+          description: Sai thứ tự tư thế hoặc gián đoạn tính liên tục của phiên
+        '422':
+          description: Tư thế chưa đạt yêu cầu thực thể sống
+
+  /ekyc/sessions/{sessionId}/face:
+    post:
+      deprecated: true
+      tags:
+        - eKYC
+      summary: "[Deprecated] Bước đối sánh khuôn mặt cũ đã được thay bằng /liveness"
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '410':
+          description: Đã chuyển sang quy trình Full Liveness 5 tư thế
+
+  /ekyc/sessions/{sessionId}/cancel:
+    post:
+      tags:
+        - eKYC
+      summary: Hủy phiên xác minh đang hoạt động
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Đã hủy phiên và dọn dẹp dữ liệu tạm thời
   /auth/profile:
     put:
       tags:

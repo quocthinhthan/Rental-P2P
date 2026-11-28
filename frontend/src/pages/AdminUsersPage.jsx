@@ -7,6 +7,7 @@ import {
   getAdminUsers,
   getAdminUserDetail,
   updateAdminUserStatus,
+  requireAdminUserEkyc,
   getAdminAuditLogs
 } from '../services/api';
 import '../styles/AdminUsersPage.css';
@@ -248,6 +249,35 @@ export default function AdminUsersPage() {
       fetchUsers();
     } catch (error) {
       Swal.fire('Thất bại', error.response?.data?.message || 'Không thể cập nhật trạng thái.', 'error');
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
+  const handleRequireReverification = async () => {
+    if (!userDetail?.user?._id) return;
+    const { isConfirmed, value: reason } = await Swal.fire({
+      title: 'Yêu cầu xác minh lại eKYC?',
+      text: 'Trạng thái xác thực danh tính của người dùng sẽ chuyển về Chưa xác thực và yêu cầu thực hiện lại eKYC khi phát hiện rủi ro.',
+      input: 'text',
+      inputPlaceholder: 'Nhập lý do yêu cầu xác minh lại...',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Xác nhận yêu cầu',
+      cancelButtonText: 'Hủy',
+      confirmButtonColor: '#dc2626',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      setActionSubmitting(true);
+      await requireAdminUserEkyc(userDetail.user._id, reason || 'Rà soát rủi ro định danh');
+      Swal.fire('Thành công', 'Đã yêu cầu người dùng xác minh lại danh tính.', 'success');
+      await handleOpenDetail(userDetail.user._id);
+      fetchUsers();
+    } catch (error) {
+      Swal.fire('Thất bại', error.response?.data?.message || 'Không thể cập nhật trạng thái eKYC.', 'error');
     } finally {
       setActionSubmitting(false);
     }
@@ -773,52 +803,94 @@ export default function AdminUsersPage() {
 
                     {/* eKYC Reference - Read Only */}
                     <div className="aup-card mb-4">
-                      <div className="d-flex justify-content-between align-items-center mb-3">
+                      <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                         <h5 className="aup-card-title mb-0">Hồ sơ định danh eKYC (CCCD)</h5>
-                        <span className={`aup-pill ${EKYC_CLASSES[userDetail.user.ekycStatus] || ''}`}>
-                          {EKYC_LABELS[userDetail.user.ekycStatus]}
-                        </span>
+                        <div className="d-flex align-items-center gap-2">
+                          <span className={`aup-pill ${EKYC_CLASSES[userDetail.user.ekycStatus] || ''}`}>
+                            {EKYC_LABELS[userDetail.user.ekycStatus]}
+                          </span>
+                          {userDetail.user.ekycStatus === 'verified' && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-danger"
+                              onClick={handleRequireReverification}
+                              disabled={actionSubmitting}
+                            >
+                              <i className="fas fa-redo-alt me-1" />
+                              Yêu cầu xác minh lại
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="row g-3">
-                        <div className="col-md-4">
+                        <div className="col-md-5">
                           <div className="aup-data-item">
-                            <span className="aup-data-label">Số CCCD liên kết</span>
-                            <strong className="aup-data-val text-secondary">{userDetail.user.idCardNumber || 'Chưa cung cấp'}</strong>
+                            <span className="aup-data-label">Số CCCD liên kết (Đã che bảo mật)</span>
+                            <strong className="aup-data-val text-secondary">
+                              {userDetail.ekycProfile?.idNumberMasked || userDetail.user.idCardNumber || 'Chưa cung cấp'}
+                            </strong>
                           </div>
                           <div className="aup-data-item mt-3">
                             <span className="aup-data-label">Họ tên trên CCCD</span>
-                            <strong className="aup-data-val">{userDetail.user.fullName || 'N/A'}</strong>
+                            <strong className="aup-data-val">
+                              {userDetail.ekycProfile?.fullName || userDetail.user.fullName || 'N/A'}
+                            </strong>
                           </div>
                           <div className="aup-data-item mt-3">
                             <span className="aup-data-label">Số điện thoại liên hệ</span>
                             <strong className="aup-data-val">{userDetail.user.phoneNumber || 'Chưa cung cấp'}</strong>
                           </div>
                         </div>
-                        <div className="col-md-8">
-                          <span className="aup-data-label mb-2 d-block">Ảnh tài liệu đối chiếu</span>
-                          <div className="d-flex gap-2 flex-wrap">
-                            {userDetail.user.idCardImages && userDetail.user.idCardImages.length > 0 ? (
-                              userDetail.user.idCardImages.map((img, index) => (
-                                <a
-                                  key={index}
-                                  href={img}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="aup-cccd-img-wrap"
-                                  title="Nhấn để xem ảnh lớn"
-                                >
-                                  <img src={img} alt={`CCCD ${index + 1}`} />
-                                  <span className="aup-zoom-hint"><i className="fas fa-magnifying-glass-plus"></i></span>
-                                </a>
-                              ))
-                            ) : (
-                              <div className="aup-empty-cccd text-muted text-center py-4 w-100">
-                                <i className="fas fa-id-card fs-4 d-block mb-1"></i>
-                                Chưa tải lên ảnh CCCD.
+                        <div className="col-md-7">
+                          <span className="aup-data-label mb-2 d-block">Thông tin kiểm chứng &amp; Bảo mật dữ liệu</span>
+                          {userDetail.ekycProfile ? (
+                            <div className="p-3 rounded border bg-light small">
+                              <div className="mb-1">
+                                <strong>Phương thức:</strong> {userDetail.ekycProfile.verificationMethod}
                               </div>
-                            )}
-                          </div>
+                              <div className="mb-1">
+                                <strong>Liveness Detection:</strong>{' '}
+                                {userDetail.ekycProfile.livenessVerified ? 'Đạt (Đủ 5 tư thế)' : 'Không áp dụng'}
+                              </div>
+                              <div className="mb-1">
+                                <strong>Đối sánh khuôn mặt CCCD:</strong>{' '}
+                                {userDetail.ekycProfile.faceMatchingVerified === true || userDetail.ekycProfile.faceMatchVerified === true
+                                  ? 'Đã đối sánh (Lịch sử)'
+                                  : 'Không thực hiện (Quy trình Liveness MVP)'}
+                              </div>
+                              <div className="mb-1">
+                                <strong>Hiệu lực CCCD:</strong> {userDetail.ekycProfile.expiryRaw || 'N/A'}
+                              </div>
+                              <div className="text-muted mt-2">
+                                <i className="fas fa-info-circle me-1" />
+                                Quy trình MVP kiểm tra giấy tờ &amp; thực thể sống, không đối chiếu CSDL dân cư quốc gia.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="d-flex gap-2 flex-wrap">
+                              {userDetail.user.idCardImages && userDetail.user.idCardImages.length > 0 ? (
+                                userDetail.user.idCardImages.map((img, index) => (
+                                  <a
+                                    key={index}
+                                    href={img}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="aup-cccd-img-wrap"
+                                    title="Nhấn để xem ảnh lớn"
+                                  >
+                                    <img src={img} alt={`CCCD ${index + 1}`} />
+                                    <span className="aup-zoom-hint"><i className="fas fa-magnifying-glass-plus"></i></span>
+                                  </a>
+                                ))
+                              ) : (
+                                <div className="aup-empty-cccd text-muted text-center py-4 w-100">
+                                  <i className="fas fa-id-card fs-4 d-block mb-1"></i>
+                                  Chưa có hồ sơ xác minh danh tính.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
