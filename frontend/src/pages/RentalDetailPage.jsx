@@ -73,17 +73,6 @@ const getDisputeFromRental = (rental) => (
 
 const hasPickupProof = (rental) => Array.isArray(rental?.pickupImages) && rental.pickupImages.length > 0;
 
-const canCreateDispute = (rental, dispute) => {
-  if (!rental || dispute?.status) return false;
-  // Cho phép tạo tranh chấp khi đơn đã xác nhận (confirmed) hoặc đang trong quá trình thuê (in_progress)
-  if (['pending_payment', 'pending_confirmation', 'rejected', 'cancelled', 'disputed', 'completed'].includes(rental.status)) {
-    return false;
-  }
-
-  return ['confirmed', 'in_progress'].includes(rental.status);
-};
-
-
 const lifecycleStepMeta = [
   {
     key: 'payment',
@@ -608,12 +597,10 @@ function DisputePanel({ rental, type, currentUser, onRefresh }) {
   const dispute = getDisputeFromRental(rental);
   const [disputeAction, setDisputeAction] = useState('');
   const currentUserId = getId(currentUser);
-  const reporterId = getId(dispute?.reporterId);
   const penalizeUserId = getId(dispute?.penalizeUserId);
-  const isReporter = Boolean(dispute?._id && reporterId && reporterId === currentUserId);
   const isParty = type === 'asRenter' || type === 'asOwner';
   const mediationEndsAt = dispute?.mediationEndsAt ? new Date(dispute.mediationEndsAt) : null;
-  const canWithdraw = isReporter && ['pending', 'escalated'].includes(dispute?.status);
+  const canWithdraw = rental.actions?.canWithdrawDispute;
   const canEscalate = Boolean(
     isParty &&
     dispute?._id &&
@@ -760,6 +747,7 @@ function RentalDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [rental, setRental] = useState(null);
+  const [expiredCompletionDeadline, setExpiredCompletionDeadline] = useState(null);
   const [type, setType] = useState(location.state?.type || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -818,6 +806,22 @@ function RentalDetailPage() {
     loadRental();
   }, [loadRental]);
 
+  const completionDeadline = rental?.actions?.completionDeadline;
+  const hasCompletionAction = Boolean(completionDeadline &&
+    (rental.actions.canCreateDispute || rental.actions.canReview));
+  useEffect(() => {
+    if (!hasCompletionAction) return;
+
+    const remainingMs = Date.parse(completionDeadline) - Date.now() + 1;
+    if (remainingMs <= 0) {
+      setExpiredCompletionDeadline(completionDeadline);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setExpiredCompletionDeadline(completionDeadline), remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [completionDeadline, hasCompletionAction]);
+
   const dispute = useMemo(() => getDisputeFromRental(rental), [rental]);
   const isOwnerView = type === 'asOwner';
   const isDisputed = rental?.status === 'disputed';
@@ -844,8 +848,9 @@ function RentalDetailPage() {
   const canPickup = !isDisputed && rental?.status === 'confirmed' && isFullySigned && !rental?.pickupReport?.recordedBy;
   const needsSignatureBeforePickup = !isDisputed && rental?.status === 'confirmed' && !isFullySigned;
   const canReturn = !isDisputed && rental?.status === 'in_progress' && !rental?.returnReport?.recordedBy;
-  const showCreateDispute = canCreateDispute(rental, dispute) && !rental?.review?.hasMyReview;
-  const canReview = rental?.status === 'completed' && !rental?.review?.hasMyReview;
+  const isCompletionWindowExpired = Boolean(completionDeadline && completionDeadline === expiredCompletionDeadline);
+  const showCreateDispute = rental?.actions?.canCreateDispute && !isCompletionWindowExpired;
+  const canReview = rental?.actions?.canReview && !isCompletionWindowExpired;
   const hasBothReviews = Boolean(rental?.review?.hasMyReview && rental?.review?.hasCounterpartyReview);
   const canPayEscrow = !isDisputed && !isOwnerView && rental?.status === 'pending_payment';
   const canOwnerConfirmReject = !isDisputed && isOwnerView && rental?.status === 'pending_confirmation';
@@ -1143,10 +1148,14 @@ function RentalDetailPage() {
                 </div>
               )}
 
-              {rental.status === 'completed' && canReview && (
+              {canReview && (
                 <div className="review-status-note is-waiting">
                   Bạn có thể đánh giá {isOwnerView ? 'người thuê' : 'chủ sở hữu'} cho đơn thuê này.
                 </div>
+              )}
+
+              {rental.status === 'completed' && !canReview && !rental.review?.hasMyReview && (
+                <div className="review-status-note">Hiện không thể gửi đánh giá cho đơn thuê này.</div>
               )}
 
               {rental.status === 'completed' && rental.review?.hasMyReview && !hasBothReviews && (

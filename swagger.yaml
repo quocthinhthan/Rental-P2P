@@ -39,7 +39,10 @@ paths:
       tags:
         - Views
       summary: Get all necessary data for the Item Detail page
-      description: A single endpoint to fetch aggregated data including item info and owner details.
+      description: Returns aggregated item and owner details. The owner's phone number is available to authenticated users with active accounts.
+      security:
+        - {}
+        - bearerAuth: []
       parameters:
         - in: path
           name: id
@@ -1252,6 +1255,11 @@ components:
         endDate:
           type: string
           format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: First recorded completion timestamp. Legacy records may have no stored value.
         totalPrice:
           type: integer
         escrowAmount:
@@ -1261,7 +1269,25 @@ components:
           enum: [pending, escrowed, refunded]
         status:
           type: string
-          enum: [pending_payment, pending_confirmation, confirmed, rejected, in_progress, completed, cancelled]
+          enum: [pending_payment, pending_confirmation, confirmed, rejected, in_progress, completed, cancelled, disputed]
+        actions:
+          type: object
+          description: Action eligibility for the current user in the my-rentals view.
+          properties:
+            canCreateDispute:
+              type: boolean
+              description: Available for confirmed or in-progress rentals and for seven days after completion, provided there is no active dispute.
+            canWithdrawDispute:
+              type: boolean
+              description: Available to the reporter while the dispute is pending or escalated.
+            canReview:
+              type: boolean
+              description: Available for seven days after completion until the current user submits a review.
+            completionDeadline:
+              type: string
+              format: date-time
+              nullable: true
+              description: Inclusive deadline for new disputes and reviews on completed rentals.
         item:
           $ref: '#/components/schemas/ItemSummary'
         counterparty:
@@ -1287,7 +1313,14 @@ components:
         address:
           type: string
         owner:
-          $ref: '#/components/schemas/UserSummary'
+          allOf:
+            - $ref: '#/components/schemas/UserSummary'
+            - type: object
+              properties:
+                phoneNumber:
+                  type: string
+                  nullable: true
+                  description: Included only for authenticated users with active accounts.
 
     MyRentalsView:
       type: object
@@ -1438,7 +1471,7 @@ components:
                 description: Giá trị gốc của tài sản (VNĐ)
               depositPercentage:
                 type: integer
-                description: Phần trăm đặt cọc (VD: 100 là 100%)
+                description: "Phần trăm đặt cọc (VD: 100 là 100%)"
               address:
                 type: string
               images:

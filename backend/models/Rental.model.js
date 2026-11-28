@@ -38,6 +38,7 @@ const RentalSchema = new mongoose.Schema({
   cancellationReason: { type: String, default: '' },
   cancelledBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   cancelledAt:        { type: Date, default: null },
+  completedAt:        { type: Date, default: null },
 
   contractId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Contract' },
   pickupImages: [{ type: String }], // kept for backward-compat (also captured in pickupReport)
