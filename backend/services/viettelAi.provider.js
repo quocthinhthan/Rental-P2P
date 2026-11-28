@@ -208,7 +208,7 @@ const evaluateFaceLivenessOutcome = ({ rawVerifyResult, rawScore, config }) => {
         isTechnicalError: true,
         errorCode: 'UNDETERMINED_LIVENESS_RESULT',
         score: roundedScore,
-        message: 'Không xác định được kết quả kiểm tra thực thể sống từ phản hồi nhà cung cấp.'
+        message: 'Không xác định được kết quả xác thực khuôn mặt. Vui lòng thử lại.'
       };
     }
 
@@ -234,7 +234,7 @@ const evaluateFaceLivenessOutcome = ({ rawVerifyResult, rawScore, config }) => {
         errorCode: 'UNCONFIRMED_LIVENESS_VERIFY_RESULT_LITERAL',
         observedLiteral: trimmed.slice(0, 40),
         score: roundedScore,
-        message: 'Giá trị kết quả Liveness từ nhà cung cấp chưa được xác nhận trong cấu hình hệ thống (VIETTEL_AI_LIVENESS_ACCEPTED_VALUES).'
+        message: 'Hệ thống xác thực khuôn mặt chưa hoàn tất cấu hình tham số kỹ thuật. Vui lòng liên hệ quản trị viên.'
       };
     }
   }
@@ -246,7 +246,7 @@ const evaluateFaceLivenessOutcome = ({ rawVerifyResult, rawScore, config }) => {
       isTechnicalError: true,
       errorCode: 'UNDETERMINED_LIVENESS_RESULT',
       score: roundedScore,
-      message: 'Không xác định được kết quả kiểm tra thực thể sống từ phản hồi nhà cung cấp.'
+      message: 'Không xác định được kết quả xác thực khuôn mặt. Vui lòng thử lại.'
     };
   }
 
@@ -257,7 +257,7 @@ const evaluateFaceLivenessOutcome = ({ rawVerifyResult, rawScore, config }) => {
       isTechnicalError: false,
       errorCode: 'LIVENESS_POSE_FAILED',
       score: roundedScore,
-      message: 'Tư thế khuôn mặt hoặc kiểm tra thực thể sống chưa đạt yêu cầu. Vui lòng thực hiện đúng hướng dẫn và chụp lại.'
+      message: 'Hình ảnh xác thực khuôn mặt chưa đạt yêu cầu. Vui lòng thực hiện đúng hướng dẫn và chụp lại.'
     };
   }
 
@@ -268,7 +268,7 @@ const evaluateFaceLivenessOutcome = ({ rawVerifyResult, rawScore, config }) => {
       isTechnicalError: false,
       errorCode: 'LIVENESS_SCORE_BELOW_POLICY',
       score: roundedScore,
-      message: 'Độ tin cậy kiểm tra thực thể sống chưa đạt ngưỡng yêu cầu. Vui lòng đảm bảo đủ ánh sáng và thực hiện lại tư thế.'
+      message: 'Hình ảnh khuôn mặt chưa đủ rõ nét. Vui lòng đảm bảo đủ ánh sáng và thực hiện lại.'
     };
   }
 
@@ -308,7 +308,7 @@ const createViettelAiProvider = ({ httpClient = axios, configGetter = getEkycCon
         providerCode: null,
         httpStatus: null,
         durationMs,
-        message: 'Tính năng xác minh danh tính chưa được cấu hình khóa kết nối Viettel AI. Vui lòng liên hệ quản trị viên.'
+        message: 'Tính năng xác minh danh tính hiện chưa sẵn sàng. Vui lòng liên hệ quản trị viên.'
       };
     }
 

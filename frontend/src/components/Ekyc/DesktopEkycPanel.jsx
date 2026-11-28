@@ -379,9 +379,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
               </span>
             </div>
             <div className="acc-ekyc-verified-sub mt-1">
-              {accountStatus?.verificationMethod === 'DOCUMENT_AND_FACE_MATCH'
-                ? 'Đã hoàn tất kiểm tra CCCD hai mặt & đối sánh khuôn mặt qua Viettel AI.'
-                : 'Đã hoàn tất kiểm tra CCCD hai mặt & xác thực thực thể sống 5 tư thế qua Viettel AI.'}
+              Tài khoản của bạn đã hoàn tất xác minh danh tính và đủ điều kiện thực hiện mọi giao dịch trên nền tảng.
             </div>
             {(maskedId || expiryText) && (
               <div className="d-flex flex-wrap gap-3 mt-2 small text-dark">
@@ -479,12 +477,12 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
         <div className="ekyc-desktop-steps">
           {[
             { label: '1. Kết nối điện thoại', idx: 1 },
-            { label: '2. Kiểm tra & OCR CCCD', idx: 2 },
+            { label: '2. Xác minh CCCD', idx: 2 },
             {
               label:
                 session.livenessTotalPoses > 0
-                  ? `3. Liveness (${session.livenessCompletedPoses || 0}/${session.livenessTotalPoses})`
-                  : '3. Thực thể sống (5 tư thế)',
+                  ? `3. Xác thực khuôn mặt (${session.livenessCompletedPoses || 0}/${session.livenessTotalPoses})`
+                  : '3. Xác thực khuôn mặt',
               idx: 3,
             },
             { label: '4. Hoàn tất xác minh', idx: 4 },
@@ -664,7 +662,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
           <p className="text-muted small mb-0">
             {reverificationRequired
               ? accountStatus?.reverificationReason
-              : 'Kiểm tra tính hợp lệ thẻ CCCD hai mặt và xác thực thực thể sống 5 tư thế qua Viettel AI giúp tăng độ tin cậy giao dịch trên nền tảng.'}
+              : 'Xác minh giấy tờ CCCD và xác thực khuôn mặt giúp bảo vệ tài khoản và tăng độ tin cậy khi giao dịch trên nền tảng.'}
           </p>
         </div>
 
@@ -705,7 +703,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
           </div>
           <div className="ekyc-benefit-title">Bảo mật &amp; Nhanh chóng</div>
           <p className="ekyc-benefit-desc">
-            Thực hiện trên điện thoại trong 1 phút qua dịch vụ Viettel AI; ảnh CCCD không bị lưu công khai.
+            Thực hiện nhanh chóng trên điện thoại; dữ liệu định danh được mã hóa và bảo mật an toàn.
           </p>
         </div>
       </div>

@@ -23,9 +23,9 @@ const STEP_TITLES = Object.freeze({
   [STEP.CONSENT]: 'Giới thiệu & Đồng ý xử lý dữ liệu',
   [STEP.FRONT_CAPTURE]: 'Chụp CCCD mặt trước',
   [STEP.BACK_CAPTURE]: 'Chụp CCCD mặt sau',
-  [STEP.DOCUMENT_CHECKING]: 'Kiểm tra giấy tờ tùy thân',
+  [STEP.DOCUMENT_CHECKING]: 'Đang xác minh',
   [STEP.OCR_CONFIRM]: 'Xác nhận thông tin CCCD',
-  [STEP.LIVENESS_CAPTURE]: 'Thực thể sống (5 tư thế)',
+  [STEP.LIVENESS_CAPTURE]: 'Xác thực khuôn mặt',
   [STEP.RESULT]: 'Kết quả xác minh',
 });
 
@@ -199,35 +199,17 @@ const captureVideoFrameToJpegBlob = (
     );
   });
 
-const scoreRearCameraCandidate = (device, index) => {
-  const label = (device.label || '').toLowerCase();
-  let score = 0;
-
-  if (/ultra|wide-angle|0\.5|0,5|macro|depth|fisheye|tele/i.test(label)) {
-    score -= 100;
-  }
-  if (/camera2?\s*0\b/.test(label)) {
-    score += 80;
-  }
-  if (/main|chính|standard|1x/i.test(label)) {
-    score += 40;
-  }
-
-  score -= index * 5;
-  return score;
-};
-
-const applyBestTrackFocusAndZoom = async (stream, desiredZoom = null) => {
+const applyContinuousAutoFocus = async (stream) => {
   const track = stream?.getVideoTracks?.()?.[0];
-  if (!track || typeof track.getCapabilities !== 'function') {
-    return { supportedZoom: false, min: 1, max: 1, current: 1 };
+  if (!track || typeof track.getCapabilities !== 'function' || typeof track.applyConstraints !== 'function') {
+    return;
   }
 
   let caps = {};
   try {
     caps = track.getCapabilities() || {};
   } catch {
-    return { supportedZoom: false, min: 1, max: 1, current: 1 };
+    return;
   }
 
   const advanced = {};
@@ -241,26 +223,13 @@ const applyBestTrackFocusAndZoom = async (stream, desiredZoom = null) => {
     advanced.whiteBalanceMode = 'continuous';
   }
 
-  let zoomInfo = { supportedZoom: false, min: 1, max: 1, current: 1 };
-  if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number' && caps.zoom.max > 1.1) {
-    const minZ = Math.max(1, caps.zoom.min);
-    const maxZ = caps.zoom.max;
-    const targetZ = desiredZoom !== null
-      ? Math.min(maxZ, Math.max(minZ, desiredZoom))
-      : Math.min(maxZ, Math.max(minZ, 1));
-    advanced.zoom = targetZ;
-    zoomInfo = { supportedZoom: true, min: minZ, max: maxZ, current: targetZ };
-  }
-
-  if (Object.keys(advanced).length > 0 && typeof track.applyConstraints === 'function') {
+  if (Object.keys(advanced).length > 0) {
     try {
       await track.applyConstraints({ advanced: [advanced] });
     } catch {
       // ignore unsupported advanced constraints
     }
   }
-
-  return zoomInfo;
 };
 
 function PoseIllustration({ pose }) {
@@ -327,12 +296,10 @@ export default function MobileEkycPage() {
   // Camera state
   const videoRef = useRef(null);
   const activeStreamRef = useRef(null);
+  const selectedRearDeviceIdRef = useRef('');
   const [cameraStatus, setCameraStatus] = useState('IDLE'); // IDLE | STARTING | READY | DENIED | NO_CAMERA | UNSUPPORTED
   const [cameraErrorMsg, setCameraErrorMsg] = useState('');
   const [cameraRetryNonce, setCameraRetryNonce] = useState(0);
-  const [rearCameras, setRearCameras] = useState([]);
-  const [selectedRearDeviceId, setSelectedRearDeviceId] = useState('');
-  const [zoomState, setZoomState] = useState({ supportedZoom: false, min: 1, max: 1, current: 1 });
 
   const stopCameraStream = useCallback(() => {
     if (activeStreamRef.current) {
@@ -590,9 +557,40 @@ export default function MobileEkycPage() {
       setCameraStatus('STARTING');
       setCameraErrorMsg('');
 
-      const videoConstraint = !needsFrontCamera && selectedRearDeviceId
+      const resolveSecondRearDeviceId = async () => {
+        if (typeof navigator.mediaDevices?.enumerateDevices !== 'function') return '';
+        try {
+          const allDevices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = allDevices.filter((d) => d.kind === 'videoinput' && d.deviceId);
+          const hasLabels = videoInputs.some((d) => Boolean(d.label && d.label.trim()));
+          if (!hasLabels) return '';
+
+          const backCandidates = videoInputs.filter(
+            (d) => !/front|trước|user|selfie|facetime/i.test(d.label || '')
+          );
+          const candidatePool = backCandidates.length > 0 ? backCandidates : videoInputs;
+          // Match exact lens 2/2 (candidatePool[1]) from the previous manual lens switcher
+          const targetLens = candidatePool.length >= 2 ? candidatePool[1] : candidatePool[0];
+          return targetLens?.deviceId || '';
+        } catch {
+          return '';
+        }
+      };
+
+      // If permission was already granted, resolve lens 2/2 BEFORE opening any stream
+      if (!needsFrontCamera && !selectedRearDeviceIdRef.current) {
+        const preResolvedId = await resolveSecondRearDeviceId();
+        if (preResolvedId) {
+          selectedRearDeviceIdRef.current = preResolvedId;
+        }
+      }
+
+      if (cancelled) return;
+
+      const targetRearDeviceId = !needsFrontCamera ? selectedRearDeviceIdRef.current : '';
+      const videoConstraint = targetRearDeviceId
         ? {
-            deviceId: { exact: selectedRearDeviceId },
+            deviceId: { exact: targetRearDeviceId },
             width: { ideal: 2560 },
             height: { ideal: 1920 },
           }
@@ -628,9 +626,14 @@ export default function MobileEkycPage() {
           return;
         }
 
+        // Clear stale deviceId if cached lens failed and fallback to facingMode
+        if (targetRearDeviceId) {
+          selectedRearDeviceIdRef.current = '';
+        }
+
         try {
           stream = await navigator.mediaDevices.getUserMedia({
-            video: needsFrontCamera ? { facingMode: 'user' } : true,
+            video: needsFrontCamera ? { facingMode: 'user' } : { facingMode: 'environment' },
             audio: false,
           });
         } catch (fallbackErr) {
@@ -657,56 +660,46 @@ export default function MobileEkycPage() {
         return;
       }
 
-      // Select primary 1x autofocus rear sensor automatically (avoid 0.5x ultra-wide on multi-camera phones)
-      if (!needsFrontCamera && typeof navigator.mediaDevices.enumerateDevices === 'function') {
-        try {
-          const allDevices = await navigator.mediaDevices.enumerateDevices();
-          const videoInputs = allDevices.filter((d) => d.kind === 'videoinput');
-          const backCandidates = videoInputs.filter(
-            (d) => !/front|trước|user|selfie|facetime/i.test(d.label || '')
-          );
-          const candidatePool = backCandidates.length > 0 ? backCandidates : videoInputs;
+      // First-time permission grant path: stop lens 1/2 FIRST to release Android Camera HAL lock, then open lens 2/2
+      if (!needsFrontCamera && !selectedRearDeviceIdRef.current) {
+        const postGrantRearId = await resolveSecondRearDeviceId();
+        const currentTrackSettings = stream.getVideoTracks?.()?.[0]?.getSettings?.() || {};
 
-          if (!cancelled) {
-            setRearCameras(candidatePool);
-          }
+        if (postGrantRearId) {
+          selectedRearDeviceIdRef.current = postGrantRearId;
 
-          if (!selectedRearDeviceId && candidatePool.length > 1) {
-            const ranked = candidatePool
-              .map((dev, idx) => ({ dev, score: scoreRearCameraCandidate(dev, idx) }))
-              .sort((a, b) => b.score - a.score);
+          if (!currentTrackSettings.deviceId || currentTrackSettings.deviceId !== postGrantRearId) {
+            // Must stop current rear camera track BEFORE requesting the 2nd rear lens on Android!
+            stream.getTracks().forEach((t) => t.stop());
+            stream = null;
 
-            const bestMainRear = ranked[0]?.dev;
-            const currentTrackSettings = stream.getVideoTracks?.()?.[0]?.getSettings?.() || {};
+            await new Promise((r) => window.setTimeout(r, 120));
+            if (cancelled) return;
 
-            if (
-              bestMainRear?.deviceId
-              && currentTrackSettings.deviceId
-              && bestMainRear.deviceId !== currentTrackSettings.deviceId
-            ) {
+            const exactLensConstraint = {
+              audio: false,
+              video: {
+                deviceId: { exact: postGrantRearId },
+                width: { ideal: 2560 },
+                height: { ideal: 1920 },
+              },
+            };
+
+            try {
+              stream = await navigator.mediaDevices.getUserMedia(exactLensConstraint);
+            } catch {
+              await new Promise((r) => window.setTimeout(r, 200));
+              if (cancelled) return;
               try {
-                const betterStream = await navigator.mediaDevices.getUserMedia({
-                  audio: false,
-                  video: {
-                    deviceId: { exact: bestMainRear.deviceId },
-                    width: { ideal: 2560 },
-                    height: { ideal: 1920 },
-                  },
-                });
-                stream.getTracks().forEach((t) => t.stop());
-                stream = betterStream;
-                if (!cancelled) {
-                  setSelectedRearDeviceId(bestMainRear.deviceId);
-                }
+                stream = await navigator.mediaDevices.getUserMedia(exactLensConstraint);
               } catch {
-                // keep initial stream
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: false,
+                  video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } },
+                });
               }
-            } else if (bestMainRear?.deviceId && !cancelled) {
-              setSelectedRearDeviceId(bestMainRear.deviceId);
             }
           }
-        } catch {
-          // ignore
         }
       }
 
@@ -715,10 +708,7 @@ export default function MobileEkycPage() {
         return;
       }
 
-      const detectedZoom = await applyBestTrackFocusAndZoom(stream);
-      if (!cancelled) {
-        setZoomState(detectedZoom);
-      }
+      await applyContinuousAutoFocus(stream);
 
       activeStreamRef.current = stream;
       if (videoRef.current) {
@@ -748,20 +738,7 @@ export default function MobileEkycPage() {
       document.removeEventListener('visibilitychange', handleVisibility);
       stopCameraStream();
     };
-  }, [shouldRunCamera, preferredFacingMode, needsFrontCamera, selectedRearDeviceId, cameraRetryNonce, stopCameraStream]);
-
-  const handleSwitchRearLens = () => {
-    if (rearCameras.length <= 1) return;
-    const currentIdx = rearCameras.findIndex((d) => d.deviceId === selectedRearDeviceId);
-    const nextIdx = (currentIdx + 1) % rearCameras.length;
-    setSelectedRearDeviceId(rearCameras[nextIdx].deviceId);
-  };
-
-  const handleChangeZoom = async (targetZoom) => {
-    if (!activeStreamRef.current) return;
-    const updatedZoom = await applyBestTrackFocusAndZoom(activeStreamRef.current, targetZoom);
-    setZoomState(updatedZoom);
-  };
+  }, [shouldRunCamera, preferredFacingMode, needsFrontCamera, cameraRetryNonce, stopCameraStream]);
 
   const handleTapRefocus = async () => {
     const track = activeStreamRef.current?.getVideoTracks?.()?.[0];
@@ -987,7 +964,6 @@ export default function MobileEkycPage() {
   // ── Render Document Camera Viewport (Steps 2 & 3) ──
   const renderDocumentCameraBox = (target) => {
     const canFallbackInput = cameraStatus === 'NO_CAMERA' || cameraStatus === 'UNSUPPORTED';
-    const currentLensIndex = rearCameras.findIndex((d) => d.deviceId === selectedRearDeviceId);
 
     return (
       <>
@@ -1002,42 +978,6 @@ export default function MobileEkycPage() {
                 autoPlay
                 onClick={handleTapRefocus}
               />
-
-              {cameraStatus === 'READY' && (rearCameras.length > 1 || zoomState.supportedZoom) && (
-                <div className="mekyc-cam-toolbar">
-                  {rearCameras.length > 1 ? (
-                    <button
-                      type="button"
-                      className="mekyc-cam-tool-btn"
-                      onClick={handleSwitchRearLens}
-                    >
-                      <i className="fas fa-sync-alt" />
-                      Đổi ống kính ({currentLensIndex >= 0 ? currentLensIndex + 1 : 1}/{rearCameras.length})
-                    </button>
-                  ) : (
-                    <span />
-                  )}
-
-                  {zoomState.supportedZoom && (
-                    <div className="mekyc-cam-zoom-group">
-                      {[1, 1.5, 2]
-                        .filter((z) => z >= zoomState.min && z <= zoomState.max)
-                        .map((z) => (
-                          <button
-                            key={z}
-                            type="button"
-                            className={`mekyc-cam-zoom-pill ${
-                              Math.abs(zoomState.current - z) < 0.2 ? 'is-active' : ''
-                            }`}
-                            onClick={() => handleChangeZoom(z)}
-                          >
-                            {z}x
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="mekyc-frame-overlay">
                 <div className="mekyc-idcard-guide" />
@@ -1223,26 +1163,26 @@ export default function MobileEkycPage() {
             <div>
               <h1 className="mekyc-title">Xác minh danh tính (eKYC)</h1>
               <p className="mekyc-subtitle">
-                Nhằm tăng cường an toàn giao dịch thuê &amp; cho thuê tài sản trên nền tảng, hệ thống thực hiện kiểm tra giấy tờ CCCD và xác thực thực thể sống.
+                Vui lòng hoàn tất xác minh giấy tờ tùy thân và xác thực khuôn mặt để bảo vệ tài khoản và đảm bảo an toàn giao dịch trên nền tảng.
               </p>
 
               <ul className="mekyc-info-list">
                 <li>
                   <i className="fas fa-id-card" />
                   <div>
-                    <strong>Dữ liệu thu thập:</strong> Ảnh chụp mặt trước &amp; mặt sau thẻ CCCD, thông tin OCR từ CCCD và 5 ảnh tư thế khuôn mặt chụp trực tiếp từ camera trước.
+                    <strong>Dữ liệu thu thập:</strong> Ảnh chụp hai mặt thẻ CCCD, thông tin trên giấy tờ và hình ảnh xác thực khuôn mặt trực tiếp từ camera.
                   </div>
                 </li>
                 <li>
                   <i className="fas fa-check-double" />
                   <div>
-                    <strong>Chuẩn bị giấy tờ:</strong> Sử dụng <strong>thẻ CCCD bản gốc</strong> còn hạn sử dụng. Không dùng bản photocopy, ảnh chụp màn hình hoặc giấy tờ bị cắt góc.
+                    <strong>Chuẩn bị giấy tờ:</strong> Sử dụng <strong>thẻ CCCD bản gốc</strong> còn hạn sử dụng. Không dùng bản photocopy, ảnh chụp màn hình hoặc giấy tờ bị mất góc.
                   </div>
                 </li>
                 <li>
                   <i className="fas fa-user-lock" />
                   <div>
-                    <strong>Đối tác xử lý &amp; Bảo mật:</strong> Hình ảnh được kiểm tra giả mạo giấy tờ, bóc tách OCR và kiểm tra thực thể sống (Full Liveness 5 tư thế) qua dịch vụ <strong>Viettel AI</strong>. Ảnh chụp không lưu trữ công khai.
+                    <strong>Bảo mật thông tin:</strong> Dữ liệu định danh được mã hóa an toàn và chỉ phục vụ mục đích xác minh tài khoản trên hệ thống.
                   </div>
                 </li>
               </ul>
@@ -1256,7 +1196,7 @@ export default function MobileEkycPage() {
                     onChange={(e) => setConsentChecked(e.target.checked)}
                   />
                   <span>
-                    Tôi đã đọc, hiểu rõ mục đích và đồng ý cho phép RentalP2P thu thập, xử lý dữ liệu cá nhân &amp; hình ảnh khuôn mặt thông qua dịch vụ Viettel AI để thực hiện eKYC.
+                    Tôi đã đọc, hiểu rõ mục đích và đồng ý cho phép RentalP2P thu thập, xử lý dữ liệu cá nhân &amp; hình ảnh khuôn mặt để xác minh danh tính tài khoản.
                   </span>
                 </label>
               </div>
@@ -1422,9 +1362,9 @@ export default function MobileEkycPage() {
                 style={{ width: '3rem', height: '3rem' }}
                 role="status"
               />
-              <h2 className="mekyc-title">Đang kiểm tra tính hợp lệ của giấy tờ</h2>
+              <h2 className="mekyc-title">Đang xác minh thông tin</h2>
               <p className="mekyc-subtitle mb-0">
-                Hệ thống đang kiểm tra dấu hiệu giả mạo hai mặt CCCD và bóc tách thông tin định danh qua Viettel AI. Vui lòng giữ màn hình mở trong giây lát...
+                Hệ thống đang xác minh giấy tờ tùy thân của bạn. Vui lòng giữ màn hình mở trong giây lát...
               </p>
             </div>
           )}
@@ -1434,7 +1374,7 @@ export default function MobileEkycPage() {
             <div>
               <h1 className="mekyc-title">Kiểm tra &amp; Xác nhận thông tin</h1>
               <p className="mekyc-subtitle">
-                Vui lòng đối chiếu các thông tin được nhận dạng từ CCCD. Để đảm bảo tính toàn vẹn, dữ liệu OCR không thể chỉnh sửa thủ công.
+                Vui lòng kiểm tra các thông tin được nhận dạng từ CCCD. Để đảm bảo tính chính xác, dữ liệu này không chỉnh sửa thủ công.
               </p>
 
               {session?.ocrPreview ? (
@@ -1488,7 +1428,7 @@ export default function MobileEkycPage() {
                   {submitting ? (
                     <>
                       <span className="spinner-border spinner-border-sm" />
-                      Đang khởi tạo thử thách...
+                      Đang xử lý...
                     </>
                   ) : (
                     <>
@@ -1511,17 +1451,17 @@ export default function MobileEkycPage() {
             </div>
           )}
 
-          {/* ── STEP 6: FULL 5-POSE LIVENESS DETECTION (Front Camera Only, No File Upload) ── */}
+          {/* ── STEP 6: FACE VERIFICATION (Front Camera Only, No File Upload) ── */}
           {uiStep === STEP.LIVENESS_CAPTURE && (
             <div className="mekyc-liveness-step">
               <div className="mekyc-liveness-header">
-                <h1 className="mekyc-title mb-0">Kiểm tra thực thể sống</h1>
+                <h1 className="mekyc-title mb-0">Xác thực khuôn mặt</h1>
                 <span className="mekyc-pose-count-badge">
-                  Tư thế {livenessProgress.currentPoseNumber}/{livenessProgress.totalPoses}
+                  Bước {livenessProgress.currentPoseNumber}/{livenessProgress.totalPoses}
                 </span>
               </div>
               <p className="mekyc-subtitle mekyc-subtitle--compact">
-                Thực hiện đủ 5 tư thế khuôn mặt nơi đủ sáng, không đeo khẩu trang hoặc kính râm.
+                Thực hiện theo hướng dẫn trên màn hình ở nơi đủ sáng, không đeo khẩu trang hoặc kính râm.
               </p>
 
               {/* 1/5 .. 5/5 Pose Progress Chips */}
@@ -1554,9 +1494,7 @@ export default function MobileEkycPage() {
               {submitting && (
                 <div className="mekyc-pose-feedback mekyc-pose-feedback--checking">
                   <span className="spinner-border spinner-border-sm flex-shrink-0" />
-                  <span>
-                    Đang kiểm tra tư thế {livenessProgress.currentPoseNumber}/5 ({currentPoseMeta.shortLabel})...
-                  </span>
+                  <span>Đang xác thực khuôn mặt...</span>
                 </div>
               )}
 
@@ -1621,7 +1559,7 @@ export default function MobileEkycPage() {
                   <div className="text-center text-white px-3 py-3">
                     <i className="fas fa-video-slash fs-3 text-warning mb-2 d-block" />
                     <div className="small mb-3">
-                      {cameraErrorMsg || 'Bước kiểm tra thực thể sống bắt buộc sử dụng camera trước trực tiếp.'}
+                      {cameraErrorMsg || 'Bước xác thực khuôn mặt yêu cầu sử dụng camera trước trực tiếp.'}
                     </div>
                     <button
                       type="button"
@@ -1644,12 +1582,12 @@ export default function MobileEkycPage() {
                 {submitting ? (
                   <>
                     <span className="spinner-border spinner-border-sm flex-shrink-0" />
-                    <span>Đang xác thực tư thế {livenessProgress.currentPoseNumber}/5...</span>
+                    <span>Đang xác thực...</span>
                   </>
                 ) : (
                   <>
                     <i className="fas fa-camera flex-shrink-0" />
-                    <span>Chụp tư thế {livenessProgress.currentPoseNumber}/5 ({currentPoseMeta.shortLabel})</span>
+                    <span>Chụp xác thực ({currentPoseMeta.shortLabel})</span>
                   </>
                 )}
               </button>
@@ -1670,9 +1608,9 @@ export default function MobileEkycPage() {
                   <div className="mekyc-result-icon mekyc-result-icon--success">
                     <i className="fas fa-check" />
                   </div>
-                  <h1 className="mekyc-title text-success">Hoàn tất xác minh eKYC!</h1>
+                  <h1 className="mekyc-title text-success">Xác minh danh tính thành công!</h1>
                   <p className="mekyc-subtitle">
-                    Đã kiểm tra hợp lệ CCCD hai mặt và hoàn thành 5/5 tư thế thực thể sống. Kết quả đã tự động đồng bộ về thiết bị ban đầu.
+                    Danh tính tài khoản của bạn đã được xác minh thành công. Kết quả đã tự động đồng bộ về thiết bị ban đầu.
                   </p>
 
                   {session.ocrPreview && (
