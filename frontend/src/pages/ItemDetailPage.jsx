@@ -18,6 +18,12 @@ import { formatItemCode } from '../utils/itemCode';
 import { sanitizeDescription } from '../utils/sanitize';
 import UserTrustSummary, { RatingSummary, TrustBadge } from '../components/Trust/TrustBadge';
 
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const formatBookingAmount = (value) => {
+  const roundedAmount = Math.round(value * 100) / 100;
+  return `${roundedAmount.toLocaleString('vi-VN', { maximumFractionDigits: 2 })}đ`;
+};
+
 /* ─────────────────────────────────────────
    Helper: star renderer
    ───────────────────────────────────────── */
@@ -447,9 +453,9 @@ function ItemDetailPage() {
       
       Swal.fire({
         title: 'Yêu cầu thuê thành công! 🎉',
-        text: 'Yêu cầu thuê đồ của bạn đã được tạo. Hệ thống sẽ chuyển hướng bạn sang cổng thanh toán VNPay để tiến hành đặt cọc (ký quỹ) bảo đảm giao dịch.',
+        text: `Thanh toán ${formatBookingAmount(res.data.totalAmount)} qua VNPay, gồm tiền thuê và tiền cọc.`,
         icon: 'success',
-        confirmButtonText: 'Tiến hành đặt cọc',
+        confirmButtonText: 'Thanh toán qua VNPay',
         confirmButtonColor: '#ffb524',
         allowOutsideClick: false
       }).then(() => {
@@ -617,6 +623,12 @@ function ItemDetailPage() {
   const depositPercentage = Number(item.depositPercentage ?? 100);
   const baseValue = Number(item.baseValue ?? 0);
   const depositAmount = (baseValue * depositPercentage) / 100;
+  // Match POST /rentals, which includes both endpoints of the submitted date range.
+  const rentalDays = startDate && endDate
+    ? Math.ceil((endDate - startDate) / MILLISECONDS_PER_DAY) + 1
+    : 0;
+  const rentalFee = rentalDays * Number(item.pricePerDay);
+  const estimatedTotal = rentalFee + depositAmount;
   const ownerProfile = item.owner ? {
     ...item.owner,
     averageRating: item.owner.averageRating ?? 0,
@@ -823,7 +835,7 @@ function ItemDetailPage() {
             </div>
             <div className="mb-4">
               <div className="text-muted" style={{ fontSize: '.9rem' }}>
-                Tiền cọc yêu cầu: <strong>{depositAmount.toLocaleString('vi-VN')}đ</strong> ({depositPercentage}%)
+                Tiền cọc yêu cầu: <strong>{formatBookingAmount(depositAmount)}</strong> ({depositPercentage}%)
               </div>
             </div>
 
@@ -902,20 +914,24 @@ function ItemDetailPage() {
                           onChange={(e) => setNote(e.target.value)}
                         />
                       </div>
-                      {startDate && endDate && (
-                        <div className="mb-3 px-3 py-2 rounded-3 bg-white border" style={{ fontSize: '.85rem' }}>
-                          <span className="text-muted">Tổng ước tính: </span>
-                          <strong className="text-primary">
-                            {(
-                              Number(item.pricePerDay) *
-                              Math.max(1, Math.ceil((endDate - startDate) / 86400000))
-                            ).toLocaleString('vi-VN')}đ
-                          </strong>
-                          <span className="text-muted">
-                            {' '}({Math.max(1, Math.ceil((endDate - startDate) / 86400000))} ngày)
-                          </span>
-                        </div>
-                      )}
+                      <div role="status">
+                        {rentalDays > 0 && (
+                          <dl className="mb-3 px-3 py-2 rounded-3 bg-white border small">
+                            <div className="d-flex justify-content-between gap-2">
+                              <dt className="fw-normal text-muted">Tiền thuê ({rentalDays} ngày)</dt>
+                              <dd className="mb-0">{formatBookingAmount(rentalFee)}</dd>
+                            </div>
+                            <div className="d-flex justify-content-between gap-2">
+                              <dt className="fw-normal text-muted">Tiền cọc</dt>
+                              <dd className="mb-0">{formatBookingAmount(depositAmount)}</dd>
+                            </div>
+                            <div className="d-flex justify-content-between gap-2 border-top mt-2 pt-2 fw-bold">
+                              <dt>Tổng thanh toán ước tính</dt>
+                              <dd className="mb-0 text-primary">{formatBookingAmount(estimatedTotal)}</dd>
+                            </div>
+                          </dl>
+                        )}
+                      </div>
                       <button
                         className="btn-submit"
                         type="submit"

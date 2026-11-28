@@ -122,38 +122,11 @@ const isPastRentalEndDate = (rental) => {
 };
 
 const getPastEndDateHelperText = (rental) => {
-  if (rental?.status === 'completed' || hasReturnProof(rental) || !hasPickupProof(rental) || !isPastRentalEndDate(rental)) {
+  if (rental?.status !== 'in_progress' || hasReturnProof(rental) || !isPastRentalEndDate(rental)) {
     return '';
   }
 
   return 'Đơn đã qua ngày thuê, vui lòng hoàn tất/trả đồ.';
-};
-
-const getConfirmedTimelineStatus = (rental, isFullySigned) => {
-  if (hasPickupProof(rental)) return 'in_progress';
-  return isFullySigned ? 'confirmed_ready_for_pickup' : 'confirmed';
-};
-
-const getTimelineStatusAfterDisputeRestore = (rental, dispute, isFullySigned) => {
-  if (!rental) return '';
-
-  if (rental.status === 'completed' || dispute?.previousRentalStatus === 'completed' || hasReturnProof(rental)) {
-    return 'completed';
-  }
-
-  if (
-    rental.status === 'in_progress' ||
-    dispute?.previousRentalStatus === 'in_progress' ||
-    hasPickupProof(rental)
-  ) {
-    return 'in_progress';
-  }
-
-  if (rental.status === 'confirmed' || dispute?.previousRentalStatus === 'confirmed') {
-    return isFullySigned ? 'confirmed_ready_for_pickup' : 'confirmed';
-  }
-
-  return rental.status || dispute?.previousRentalStatus || 'in_progress';
 };
 
 const getEffectiveTimelineStatus = (rental, dispute, isFullySigned) => {
@@ -165,31 +138,18 @@ const getEffectiveTimelineStatus = (rental, dispute, isFullySigned) => {
     return 'disputed_in_progress';
   }
 
-  if (dispute?.status === 'withdrawn') {
-    return getTimelineStatusAfterDisputeRestore(rental, dispute, isFullySigned);
+  if (dispute?.status === 'resolved' && dispute.winner === 'renter') {
+    return 'dispute_resolved_at_in_progress';
   }
 
-  if (dispute?.status === 'resolved') {
-    if (dispute.winner === 'owner' && rental.status === 'completed') {
-      return 'completed';
-    }
-
-    if (dispute.winner === 'renter') {
-      return 'dispute_resolved_at_in_progress';
-    }
-
-    if (dispute.winner === 'none') {
-      return getTimelineStatusAfterDisputeRestore(rental, dispute, isFullySigned);
-    }
-
-    return rental.status;
+  const isRestored = dispute?.status === 'withdrawn' ||
+    (dispute?.status === 'resolved' && dispute.winner === 'none');
+  const status = rental.status || (isRestored ? dispute.previousRentalStatus || 'in_progress' : '');
+  if (status === 'confirmed' && (isFullySigned || rental.pickupReport?.recordedBy || hasPickupProof(rental))) {
+    return 'confirmed_ready_for_pickup';
   }
 
-  if (rental.status === 'confirmed') {
-    return getConfirmedTimelineStatus(rental, isFullySigned);
-  }
-
-  return rental.status;
+  return status;
 };
 
 const getLifecycleIndex = (status, rental) => {

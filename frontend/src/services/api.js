@@ -69,7 +69,6 @@ export const resetPassword = (token, password) => api.put(`/auth/reset-password/
 
 export const updateProfile = (payload) => api.put('/auth/profile', payload);
 
-export const verifyEKYC = (idCardFrontUrl) => api.post('/auth/verify-ekyc', { idCardFrontUrl });
 
 // === Viettel AI eKYC ===
 export const getEkycStatus = () => api.get('/ekyc/status', { skipGlobalLoading: true });
@@ -379,7 +378,6 @@ const apiService = {
   forgotPassword,
   resetPassword,
   updateProfile,
-  verifyEKYC,
   getEkycStatus,
   createEkycSession,
   claimEkycSession,

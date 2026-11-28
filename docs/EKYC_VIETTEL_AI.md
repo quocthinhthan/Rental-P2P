@@ -16,6 +16,7 @@
 4. Người dùng kiểm tra thông tin OCR chỉ đọc và xác nhận → Backend sinh thứ tự thử thách gồm **`Portrait` đầu tiên + 4 tư thế `Left`, `Right`, `Top`, `Bottom` trộn ngẫu nhiên bằng CSPRNG**.
 5. Camera trước trên Mobile giữ kết nối xuyên suốt để thực hiện lần lượt `1/5` → `5/5` tư thế qua `POST /ekyc/face_liveness` (`5` request).
 6. Chỉ khi **cả 5/5 tư thế đều đạt**, Backend mới lưu `IdentityProfile`, cập nhật `User.ekycStatus = 'verified'`, tính lại `TrustScore` (`+20`) và phát sự kiện Socket.IO `ekyc_session_updated` về Desktop.
+7. Trang **Tài khoản** đồng bộ hồ sơ qua `GET /api/auth/me` khi nhận kết quả hoặc phát hiện có trạng thái xác minh mới. Nếu gặp lỗi tạm thời, giao diện thử lại tự động.
 
 **Tổng số lượt gọi Viettel AI lý tưởng cho 1 phiên thành công:** `1` (Spoof Check) + `1` (OCR) + `5` (Face Liveness) = **7 request** (0 request Face Matching).
 

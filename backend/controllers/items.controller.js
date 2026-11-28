@@ -540,6 +540,9 @@ const suggestPrice = async (req, res) => {
     }
     
     baseValue = Number(baseValue);
+    if (!Number.isFinite(baseValue) || baseValue <= 0) {
+      return res.status(400).json({ message: 'Giá trị mua mới phải là số dương.' });
+    }
     const catLower = category ? category.toLowerCase() : 'khác';
 
     // 2. LÀM SẠCH VÀ GIỚI HẠN MÔ TẢ (Chống Spam & Tấn công)
@@ -564,10 +567,11 @@ const suggestPrice = async (req, res) => {
 
     // --- MODULE 2: LLM ENGINE (THÔNG MINH THẬT SỰ) ---
     let aiSuggestedPrice = null;
-    let aiReasoning = "Chưa có phân tích từ AI do đang dùng giá mặc định."; // Mặc định nếu không có API key
+    let aiReasoning = 'Đang dùng giá theo công thức.';
     let marketContext = "Dựa trên khấu hao cơ bản.";
 
     if (genAI) {
+      let generationTimeout;
       try {
         const similarItemsCount = await Item.countDocuments({ category: category, status: 'available' });
         const demandStatus = similarItemsCount > 10 ? "Nguồn cung đang dồi dào, cần giá cạnh tranh" : "Nguồn cung khan hiếm, có thể để giá cao hơn";
@@ -597,38 +601,35 @@ const suggestPrice = async (req, res) => {
           "reasoning": "Vì đồ đã xước và pin chai, cần giảm giá để dễ cho thuê hơn." 
         }`;
         
-        // CHỐNG TREO APP: Ép AI chỉ được nghĩ tối đa 4 giây
+        // Giới hạn thời gian chờ AI trong một yêu cầu.
         const result = await Promise.race([
             model.generateContent(prompt),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("AI_TIMEOUT")), 20000))
+            new Promise((_, reject) => {
+              generationTimeout = setTimeout(() => reject(new Error('AI_TIMEOUT')), 20000);
+            })
         ]);
         
         const parsedData = JSON.parse(result.response.text());
-        
-        if (parsedData && parsedData.suggestedPrice) {
-            let tempAiPrice = Number(parsedData.suggestedPrice);
-            
-            // GUARDRAILS: Chặn AI báo giá hoang tưởng
-            const maxAllowed = baseValue * 0.10;
-            const minAllowed = baseValue * 0.005;
-            
-            if (tempAiPrice > maxAllowed || tempAiPrice < minAllowed) {
-                aiSuggestedPrice = ruleBasedPrice; 
-                aiReasoning = "AI đề xuất giá ngoài biên độ an toàn, hệ thống tự động dùng giá tiêu chuẩn.";
-            } else {
-                aiSuggestedPrice = tempAiPrice;
-                aiReasoning = parsedData.reasoning || "Đã phân tích dựa trên khấu hao và thị trường.";
-            }
+        const rawPrice = parsedData?.suggestedPrice;
+        const suggestedPrice = typeof rawPrice === 'number' || typeof rawPrice === 'string' ? Number(rawPrice) : NaN;
+        if (!Number.isFinite(suggestedPrice) || suggestedPrice < baseValue * 0.005 || suggestedPrice > baseValue * 0.10) {
+          aiReasoning = 'Phản hồi AI chưa có mức giá hợp lệ. Hệ thống dùng giá theo công thức.';
+        } else {
+          aiSuggestedPrice = suggestedPrice;
+          aiReasoning = parsedData.reasoning || 'Đã phân tích dựa trên khấu hao và thị trường.';
         }
       } catch (aiError) {
         console.error('[DEBUG] Lỗi gọi AI (Có thể do Timeout hoặc hết Quota):', aiError.message);
-        aiSuggestedPrice = ruleBasedPrice;
-        aiReasoning = "Máy chủ AI phản hồi chậm, tự động áp dụng giá tiêu chuẩn.";
+        aiReasoning = 'Không lấy được phản hồi AI. Hệ thống dùng giá theo công thức.';
+      } finally {
+        clearTimeout(generationTimeout);
       }
     }
 
     // --- MODULE 3: ENSEMBLE ---
-    const finalSuggestion = Math.round((ruleBasedPrice + aiSuggestedPrice) / 2);
+    const finalSuggestion = aiSuggestedPrice === null
+      ? ruleBasedPrice
+      : Math.round((ruleBasedPrice + aiSuggestedPrice) / 2);
 
     const responseData = {
       ruleBasedPrice,
@@ -639,7 +640,7 @@ const suggestPrice = async (req, res) => {
     };
 
     pricingCache.set(cacheKey, responseData);
-    setTimeout(() => pricingCache.delete(cacheKey), 12 * 60 * 60 * 1000);
+    setTimeout(() => pricingCache.delete(cacheKey), 12 * 60 * 60 * 1000).unref();
 
     res.status(200).json(responseData);
 
