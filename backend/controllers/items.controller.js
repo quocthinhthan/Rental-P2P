@@ -61,8 +61,9 @@ const validateCoordinates = (lat, lng) => {
 // GET /api/items?search=...&category=...&address=...&startDate=...&endDate=...
 const searchItems = async (req, res) => {
   try {
-    const { search, category, address, startDate, endDate, ownerId, exclude, lat, lng, radius, includeMapLocation, limit, page } = req.query;
+    const { search, category, address, startDate, endDate, ownerId, exclude, lat, lng, radius, includeMapLocation, includePagination, limit, page } = req.query;
     const shouldIncludeMapLocation = Boolean(lat && lng && (includeMapLocation === 'true' || includeMapLocation === '1'));
+    const shouldIncludePagination = includePagination === 'true' || includePagination === '1';
     const resultLimit = shouldIncludeMapLocation
       ? clampNumber(limit, DEFAULT_MAP_SEARCH_LIMIT, 1, MAX_MAP_SEARCH_LIMIT)
       : clampNumber(limit, DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT);
@@ -72,8 +73,11 @@ const searchItems = async (req, res) => {
     let query = { status: { $ne: 'delisted' } };
 
     // 1. CÁC BỘ LỌC CƠ BẢN
-    if (ownerId) query.ownerId = ownerId;
-    if (exclude) query._id = { ...query._id, $ne: exclude };
+    if ((ownerId && !mongoose.isObjectIdOrHexString(ownerId)) || (exclude && !mongoose.isObjectIdOrHexString(exclude))) {
+      return res.status(400).json({ message: 'Mã chủ sở hữu hoặc vật phẩm không hợp lệ.' });
+    }
+    if (ownerId) query.ownerId = new mongoose.Types.ObjectId(ownerId);
+    if (exclude) query._id = { $ne: new mongoose.Types.ObjectId(exclude) };
     if (req.query.isFeatured) {
       query.isFeatured = req.query.isFeatured === 'true' || req.query.isFeatured === '1';
     }
@@ -118,10 +122,11 @@ const searchItems = async (req, res) => {
       const ownerBlockedIds = ownerBlockedItems.map(i => i._id.toString());
 
       const allUnavailableIds = [...new Set([...unavailableItemIds, ...ownerBlockedIds])];
-      query._id = { ...query._id, $nin: allUnavailableIds };
+      query._id = { ...query._id, $nin: allUnavailableIds.map((id) => new mongoose.Types.ObjectId(id)) };
     }
 
-    let items = [];
+    let items;
+    let total;
 
     // 3. TÌM KIẾM THEO VỊ TRÍ ($geoNear) NẾU CÓ TỌA ĐỘ
     if (lat && lng) {
@@ -153,17 +158,16 @@ const searchItems = async (req, res) => {
         projectFields.location = 1;
       }
 
-      items = await Item.aggregate([
-        {
-          // LƯU Ý: $geoNear BẮT BUỘC phải là stage đầu tiên trong pipeline
-          $geoNear: {
-            near: { type: "Point", coordinates: [coords.parseLng, coords.parseLat] },
-            distanceField: "distance",
-            maxDistance: radiusInMeters,
-            spherical: true,
-            query: query // Đẩy toàn bộ filter (name, status, exclude...) vào đây
-          }
+      const geoNear = {
+        $geoNear: {
+          near: { type: 'Point', coordinates: [coords.parseLng, coords.parseLat] },
+          distanceField: 'distance',
+          maxDistance: radiusInMeters,
+          spherical: true,
+          query
         },
+      };
+      const pageStages = [
         { $skip: resultSkip },
         { $limit: resultLimit },
         {
@@ -189,23 +193,42 @@ const searchItems = async (req, res) => {
             }
           }
         }
-      ]);
+      ];
+
+      if (shouldIncludePagination) {
+        const [results] = await Item.aggregate([
+          geoNear,
+          {
+            $facet: {
+              items: [{ $sort: { distance: 1, _id: 1 } }, ...pageStages],
+              totals: [{ $count: 'total' }]
+            }
+          }
+        ]);
+        items = results?.items ?? [];
+        total = results?.totals[0]?.total ?? 0;
+      } else {
+        items = await Item.aggregate([geoNear, ...pageStages]);
+      }
     } else {
-      // 4. FALLBACK: NẾU KHÔNG CÓ TỌA ĐỘ, DÙNG FIND BÌNH THƯỜNG
-      items = await Item.find(query)
+      const pageQuery = Item.find(query)
         .select('_id code name category address pricePerDay images status ownerId isFeatured')
         .populate('ownerId', '_id fullName avatarUrl ekycStatus averageRating totalReviews trustScore')
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(resultSkip)
         .limit(resultLimit);
+      [items, total] = await Promise.all([
+        pageQuery,
+        shouldIncludePagination ? Item.countDocuments(query) : null
+      ]);
     }
 
     // 5. FETCH ACTIVE RENTALS FOR DYNAMIC STATUS MAPPING
     const itemIds = items.map(item => item._id);
-    const activeRentals = await Rental.find({
+    const activeRentals = itemIds.length ? await Rental.find({
       itemId: { $in: itemIds },
       status: { $in: ACTIVE_BOOKING_STATUSES }
-    }).select('itemId startDate endDate');
+    }).select('itemId startDate endDate') : [];
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -257,6 +280,17 @@ const searchItems = async (req, res) => {
       return summary;
     });
 
+    if (shouldIncludePagination) {
+      return res.status(200).json({
+        items: itemSummaries,
+        pagination: {
+          currentPage: resultPage,
+          limit: resultLimit,
+          total,
+          totalPages: Math.ceil(total / resultLimit)
+        }
+      });
+    }
     res.status(200).json(itemSummaries);
   } catch (error) {
     console.error('[DEBUG] LỖI SEARCH ITEMS:', error);

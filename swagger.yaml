@@ -538,9 +538,54 @@ paths:
           schema:
             type: number
           description: Bán kính tìm kiếm tính bằng KM (Mặc định 5km)
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Trang kết quả cần lấy
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+          description: Số vật phẩm tối đa trên một trang
+        - in: query
+          name: includePagination
+          schema:
+            type: boolean
+            default: false
+          description: Bật để nhận thêm tổng số vật phẩm và tổng số trang theo bộ lọc
       responses:
         '200':
-          description: Danh sách vật phẩm tìm được
+          description: Danh sách vật phẩm hoặc kết quả kèm phân trang khi includePagination=true
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/ItemSummary'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ItemSummary'
+                      pagination:
+                        type: object
+                        properties:
+                          currentPage:
+                            type: integer
+                          limit:
+                            type: integer
+                          total:
+                            type: integer
+                          totalPages:
+                            type: integer
 
     post:
       tags:

@@ -154,20 +154,20 @@ export const requireAdminUserEkyc = (userId, reason = '') =>
   api.patch(`/admin/users/${encodeURIComponent(userId)}/require-ekyc`, { reason });
 
 // === Items ===
-export const getItems = (params = {}) => {
+export const getItems = (params = {}, config = {}) => {
   if (typeof params === 'string') {
     const queryString = buildItemsQueryString({
       limit: ITEM_SEARCH_LIMIT,
       search: trimSearchText(params),
     });
-    return api.get(`/items?${queryString}`);
+    return api.get(`/items?${queryString}`, config);
   }
 
   const queryString = buildItemsQueryString({
     limit: ITEM_SEARCH_LIMIT,
     ...params,
   });
-  return api.get(`/items${queryString ? `?${queryString}` : ''}`);
+  return api.get(`/items${queryString ? `?${queryString}` : ''}`, config);
 };
 
 const buildItemsQueryString = (params = {}) => {
