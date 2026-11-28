@@ -883,8 +883,19 @@ exports.updateItemStatus = async (req, res) => {
       }
     }
 
-    const before = { status: item.status };
+    const before = {
+      status: item.status,
+      delistedByAdmin: Boolean(item.delistedByAdmin),
+      adminDelistReason: item.adminDelistReason || ''
+    };
     item.status = status;
+    if (status === ItemStatus.DELISTED) {
+      item.delistedByAdmin = true;
+      item.adminDelistReason = typeof reason === 'string' ? reason.trim().slice(0, 500) : '';
+    } else {
+      item.delistedByAdmin = false;
+      item.adminDelistReason = '';
+    }
     await item.save();
 
     await createAuditLog({
@@ -893,7 +904,11 @@ exports.updateItemStatus = async (req, res) => {
       targetType: 'Item',
       targetId: item._id,
       before,
-      after: { status: item.status },
+      after: {
+        status: item.status,
+        delistedByAdmin: item.delistedByAdmin,
+        adminDelistReason: item.adminDelistReason
+      },
       reason
     });
 
@@ -1015,6 +1030,7 @@ exports.resolveItemReport = async (req, res) => {
     const before = {
       reportStatus: report.status,
       itemStatus: item.status,
+      itemDelistedByAdmin: Boolean(item.delistedByAdmin),
       ownerTrustScore: owner?.trustScore,
       ownerIsBanned: owner?.isBanned
     };
@@ -1030,13 +1046,12 @@ exports.resolveItemReport = async (req, res) => {
           });
         }
         item.status = ItemStatus.DELISTED;
-        await item.save();
       }
-    } else {
-      if (item.status === ItemStatus.DELISTED) {
-        item.status = ItemStatus.AVAILABLE;
-        await item.save();
-      }
+      item.delistedByAdmin = true;
+      item.adminDelistReason = (typeof resolutionNote === 'string' && resolutionNote.trim())
+        ? resolutionNote.trim().slice(0, 500)
+        : `Admin resolved item report (${action})`;
+      await item.save();
     }
 
     report.status = ItemReportStatus.RESOLVED;
@@ -1060,6 +1075,7 @@ exports.resolveItemReport = async (req, res) => {
         reportStatus: report.status,
         action: report.action,
         itemStatus: item.status,
+        itemDelistedByAdmin: Boolean(item.delistedByAdmin),
         ownerTrustScore: updatedOwner?.trustScore,
         ownerIsBanned: owner?.isBanned
       },
