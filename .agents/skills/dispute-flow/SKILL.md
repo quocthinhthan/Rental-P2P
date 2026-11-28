@@ -232,10 +232,10 @@ Admin resolution form should include:
 
 ## Implementation Notes
 
-- Use database transactions or equivalent guarded updates when freezing rental state, resolving payments, and applying penalties. (Verified gap: `resolveDispute` and `withdrawDispute` currently update `Rental`, `Item`, `User`, and `Dispute` sequentially without a transaction or atomic status lock, unlike `createDisputeAndFreezeRental`.)
-- Avoid status string drift. Reuse project constants/enums for `DISPUTED`, `CANCELLED`, `COMPLETED`, `REFUNDED`, and payment statuses. (Verified note: `RentalStatus` has `CANCELLED`, not `REFUNDED`, so `winner = renter` sets `rental.status = cancelled` and `paymentStatus = refunded`.)
+- `createDisputeAndFreezeRental`, `withdrawDispute`, and `resolveDispute` use `Dispute.findOneAndUpdate` atomic status guards (`409` on concurrent race) and optional MongoDB transactions (with standalone fallback).
+- Avoid status string drift. Reuse project constants/enums for `DISPUTED`, `CANCELLED`, `COMPLETED`, `REFUNDED`, and payment statuses. (`RentalStatus` has `CANCELLED`, not `REFUNDED`, so `winner = renter` sets `rental.status = cancelled` and `paymentStatus = refunded` only when `paymentStatus === escrowed`.)
 - Keep money movement centralized in payment/escrow services if such services exist. (Current MVP has no VNPay refund/payout transfer API; monetary statuses are database records only.)
 - Treat evidence images as supporting material, not proof by themselves.
-- Log Admin decisions with `resolvedBy` and `resolvedAt` for auditability. (Verified gap: `resolveDispute` does not currently write an `AuditLog` document such as `admin.dispute.resolve`, even though `AdminUsersPage.jsx` includes `admin.dispute.resolve` in its audit-log filter.)
-- When restoring or releasing `item.status` on resolve (`winner = renter` / `winner = owner`), check whether `item` is `delisted` or has another active rental rather than blindly setting `item.status = available`.
-- Do not let withdraw, escalate, and resolve race each other. Re-check dispute status immediately before mutation.
+- Log Admin decisions with `resolvedBy`, `resolvedAt`, and `AuditLog` (`action: 'admin.dispute.resolve'`, `targetType: 'Dispute'`).
+- When restoring or releasing `item.status` on resolve or withdraw, always use `syncItemRuntimeStatus` (`backend/services/itemAvailability.service.js`) so `delisted` / `delistedByAdmin` items and concurrent active rentals covering today are preserved.
+- `escalateDispute`, `withdrawDispute`, and `resolveDispute` use atomic `findOneAndUpdate` status preconditions to prevent concurrent races.
