@@ -17,21 +17,18 @@ const {
   ACTIVE_BOOKING_STATUSES,
   toStartOfDay
 } = require('../services/itemAvailability.service');
+const { getRentalActions, isActiveDispute } = require('../services/rentalActions.service');
 
 // GET /api/views/item-details/:id
 exports.getItemDetailView = async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Authorization');
+
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ message: MESSAGES.COMMON.INVALID_ITEM_ID });
   }
 
   try {
-    const item = await Item.findById(req.params.id)
-      .populate('ownerId', 'fullName avatarUrl phoneNumber _id ekycStatus averageRating totalReviews trustScore');
-
-    if (!item) {
-      return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
-    }
-
     let currentUser = null;
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
@@ -45,8 +42,17 @@ exports.getItemDetailView = async (req, res) => {
       }
     }
 
-    const isOwner = currentUser?._id.equals(item.ownerId?._id) &&
-      !currentUser.isBanned && !(currentUser.suspendedUntil > new Date());
+    const isActiveUser = Boolean(currentUser && !currentUser.isBanned &&
+      !(currentUser.suspendedUntil > new Date()));
+    const ownerFields = 'fullName avatarUrl _id ekycStatus averageRating totalReviews trustScore';
+    const item = await Item.findById(req.params.id)
+      .populate('ownerId', isActiveUser ? `${ownerFields} phoneNumber` : ownerFields);
+
+    if (!item) {
+      return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
+    }
+
+    const isOwner = isActiveUser && currentUser._id.equals(item.ownerId?._id);
     if ((item.status === ItemStatus.DELISTED || item.delistedByAdmin) && !isOwner) {
       return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
     }
@@ -90,7 +96,7 @@ exports.getItemDetailView = async (req, res) => {
       } : null,
       owner: item.ownerId ? {
         ...toSafeUserTrustSummary(item.ownerId),
-        phoneNumber: item.ownerId.phoneNumber
+        ...(isActiveUser ? { phoneNumber: item.ownerId.phoneNumber || null } : {})
       } : null,
       bookedDates:      confirmedRentals,
       blockedDates:     upcomingBlockedDates,
@@ -179,7 +185,7 @@ exports.getMyRentalsView = async (req, res) => {
       .populate('resolvedBy', '_id fullName email');
     const disputeByRental = relatedDisputes.reduce((acc, dispute) => {
       const rentalKey = dispute.rentalId.toString();
-      if (!acc[rentalKey]) {
+      if (!acc[rentalKey] || (isActiveDispute(dispute) && !isActiveDispute(acc[rentalKey]))) {
         acc[rentalKey] = dispute;
       }
       return acc;
@@ -272,6 +278,7 @@ exports.getMyRentalsView = async (req, res) => {
             status: rental.status,
             createdAt: rental.createdAt,
             updatedAt: rental.updatedAt,
+            completedAt: rental.completedAt,
             note: rental.note,
             cancellationReason: rental.cancellationReason || '',
             cancelledBy: rental.cancelledBy || null,
@@ -301,6 +308,7 @@ exports.getMyRentalsView = async (req, res) => {
             renter: renterSummary,
             owner: ownerSummary,
             dispute: formatDisputeDetail(dispute),
+            actions: getRentalActions(rental, { dispute, userId, hasMyReview: Boolean(myReview) }),
             review: {
               status: reviewStatus,
               hasMyReview: Boolean(myReview),

@@ -964,6 +964,7 @@ exports.getRentalDetail = async (req, res) => {
       status: rental.status,
       createdAt: rental.createdAt,
       updatedAt: rental.updatedAt,
+      completedAt: rental.completedAt,
       note: rental.note || '',
       cancellationReason: rental.cancellationReason || '',
       cancelledBy: rental.cancelledBy || null,
@@ -1069,6 +1070,7 @@ exports.approvePickup = async (req, res) => {
     rental.pickupReport.approvedBy = req.user._id;
     rental.pickupReport.approvedAt = new Date();
     rental.status = RentalStatus.IN_PROGRESS;
+    rental.$where = { status: RentalStatus.CONFIRMED };
     await rental.save();
     await syncItemRuntimeStatus(rental.itemId);
 
@@ -1080,6 +1082,9 @@ exports.approvePickup = async (req, res) => {
 
     res.status(200).json({ message: 'Xác nhận bàn giao đồ thành công. Đơn hàng chuyển sang Đang thuê.', rental });
   } catch (error) {
+    if (error instanceof mongoose.Error.DocumentNotFoundError) {
+      return res.status(409).json({ message: 'Đơn thuê đã thay đổi trạng thái, vui lòng tải lại.' });
+    }
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -1119,6 +1124,8 @@ exports.approveReturn = async (req, res) => {
     rental.returnReport.approvedBy = req.user._id;
     rental.returnReport.approvedAt = new Date();
     rental.status = RentalStatus.COMPLETED;
+    rental.completedAt ||= rental.returnReport.approvedAt;
+    rental.$where = { status: RentalStatus.IN_PROGRESS };
     await rental.save();
 
     await syncItemRuntimeStatus(rental.itemId);
@@ -1141,6 +1148,9 @@ exports.approveReturn = async (req, res) => {
 
     res.status(200).json({ message: 'Xác nhận trả đồ thành công. Đơn hàng đã hoàn thành.', rental });
   } catch (error) {
+    if (error instanceof mongoose.Error.DocumentNotFoundError) {
+      return res.status(409).json({ message: 'Đơn thuê đã thay đổi trạng thái, vui lòng tải lại.' });
+    }
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };

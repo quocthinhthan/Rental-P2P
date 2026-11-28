@@ -19,8 +19,8 @@
 
 | Role | Description | Key Capabilities (Observed in Code) |
 |---|---|---|
-| **Guest** (Unauthenticated) | Public visitor | Browse home/shop, search items (text/category/dates/location radius), view item detail + availability calendar + owner trust summary + reviews, view public user profile, trigger forgot/reset password. *(Note: API `GET /api/views/item-details/:id` currently returns `owner.phoneNumber` to Guests even though UI hides it.)* |
-| **Registered Member** (`role: 'user'`, unverified eKYC) | Authenticated user without eKYC | Update profile & bank account, submit eKYC (`POST /api/auth/verify-ekyc`), manage favorites (max 100), report items (`POST /api/items/:id/report`), use AI price suggestion, view financial stats, view/chat on own rentals, raise/withdraw/escalate disputes, submit reviews, pay/cancel own `pending_payment` rental. |
+| **Guest** (Unauthenticated) | Public visitor | Browse home/shop, search items (text/category/dates/location radius), view item detail + availability calendar + owner trust summary + reviews, view public user profile, trigger forgot/reset password. |
+| **Registered Member** (`role: 'user'`, unverified eKYC) | Authenticated user without eKYC | Update profile & bank account, submit eKYC (`POST /api/auth/verify-ekyc`), manage favorites (max 100), see the owner's phone number on an item listing with an active account, report items (`POST /api/items/:id/report`), use AI price suggestion, view financial stats, view/chat on own rentals, raise/withdraw/escalate disputes, submit reviews, pay/cancel own `pending_payment` rental. |
 | **Verified Member** (`ekycStatus === 'verified'`) | Identity-verified Renter &/or Owner | All Member actions **plus** gated by `checkVerified`: create items (`POST /api/items`), create rental requests (`POST /api/rentals`), sign contracts (`POST /api/rentals/:id/sign-contract`), record pickup (`PATCH /api/rentals/:id/pickup`). *(Note: `confirmRental` also checks both owner & renter `ekycStatus === 'verified'`.)* |
 | **Item Owner** (contextual per item/rental) | User whose `_id === item.ownerId` / `rental.ownerId` | Edit/delist/delete own item, manage `blockedDates`, confirm/reject `pending_confirmation` rentals, cancel `confirmed` rental before pickup, approve pickup/return handover reports. |
 | **Renter** (contextual per rental) | User whose `_id === rental.renterId` | Pay via VNPay, cancel before pickup proof, initiate pickup/return handover reports or approve counterpart's report. |
@@ -54,11 +54,12 @@
 
 ### 3.4. `Dispute` (`backend/models/Dispute.model.js`, `backend/enums/dispute.enum.js`)
 - **Statuses:** `pending` (48h mediation window via `mediationEndsAt`) -> `escalated` (by either party after `mediationEndsAt`) -> `resolved` (by Admin) or `withdrawn` (by reporter).
+- **Eligibility:** Either rental party can open a dispute in `confirmed`, `in_progress`, or within seven days after completion when no active dispute exists. The reporter can withdraw a `pending` or `escalated` dispute.
 - **Atomicity & Outcomes (`winner`):** `escalateDispute`, `withdrawDispute`, and `resolveDispute` use atomic `Dispute.findOneAndUpdate` status guards (`409` on race) + optional MongoDB transaction. `renter` sets `rental.status = cancelled` and `paymentStatus = refunded` (only if currently `escrowed`) | `owner` sets `rental.status = completed` | `none` restores `previousRentalStatus` (requires `penaltyType = none`). All outcomes sync `Item.status` via `syncItemRuntimeStatus` (preserving `delisted` / `delistedByAdmin` and concurrent active rentals).
 - **Penalties (`penaltyType`):** `none` | `warning` (-15 TrustScore) | `suspension` (+7 days `suspendedUntil`, -30 TrustScore, capped <= 40 while suspended) | `ban` (`isBanned = true`, TrustScore = 0).
 
 ### 3.5. `Review` & `TrustScore`
-- **Reviews (`Review.model.js`):** Double-blind per `(rentalId, reviewerId)` on `completed` rentals within 7 days of `rental.updatedAt`. Hidden until counterpart submits OR 7 days pass (auto-published lazily in `getUserReviews` / `getItemReviews`).
+- **Reviews (`Review.model.js`):** Double-blind per `(rentalId, reviewerId)` on `completed` rentals within seven days of `completedAt`. Older records use `returnReport.approvedAt` or `endDate`. Reviews are hidden until the counterpart submits or seven days pass after the review was submitted (published in `getUserReviews` / `getItemReviews`).
 - **TrustScore (`trustScore.service.js`):** `0–100` reliability score (`base 50 + eKYC [+20/-10/0] + completedRentals [2 each, max +20] + reviewScore [+10 to -10] - disputePenalties - itemReportPenalties`, clamped `[0, 100]`, capped `<= 40` while suspended, `0` if banned).
 
 ### 3.6. `ItemReport` & `AuditLog`

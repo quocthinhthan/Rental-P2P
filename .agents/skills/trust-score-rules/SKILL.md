@@ -369,6 +369,8 @@ Do not expose:
 - `idCardImages`
 - sensitive email/phone unless the endpoint/business flow explicitly requires them
 
+`GET /api/views/item-details/:id` provides the owner's phone number to authenticated callers with active accounts for listing contact.
+
 ### 7.2. Rental request response for owner
 
 Owner-facing rental request data should include renter reliability summary:
@@ -432,7 +434,6 @@ The `0–100` TrustScore model is **IMPLEMENTED** in the backend:
 
 - **Unban after historical dispute ban penalty:** In `trustScore.service.js`, `calculateUserTrustScore` checks `if (user.isBanned || disputePenalty.hasBanPenalty)` and forces `trustScore = 0`. If an admin later unbans a user who previously received a `Dispute` with `penaltyType = 'ban'`, the historical dispute still pins `trustScore` to `0`.
 - **Lazy review auto-publish:** Hidden double-blind reviews older than 7 days are published and recalculated lazily inside `getUserReviews` and `getItemReviews`, not via a background cron job.
-- **Public item detail phone exposure:** `GET /api/views/item-details/:id` (`views.controller.js`) currently returns `owner.phoneNumber` to any unauthenticated or authenticated caller (frontend `ItemDetailPage.jsx` hides it visually behind `isLoggedIn`, while the API payload still includes it), deviating from §7.1 unless the Founder confirms phone visibility is intentional.
 
 ---
 

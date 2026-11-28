@@ -131,9 +131,10 @@ Rentals can be cancelled before pickup proof is recorded, subject to role and st
 - After a rental ends (`cancelled`, `rejected`, `completed`) the renter sees a **"Thuê lại sản phẩm"** button that navigates directly to the item detail page.
 
 
-## Current differences between checks
+## Dispute and Review Eligibility
 
-- **Dispute eligibility:** `backend/controllers/disputes.controller.js` accepts disputes from rental parties for `confirmed` (including before pickup), `in_progress`, and `completed` for up to seven days from `updatedAt`, with `endDate` as a fallback. `frontend/src/pages/RentalDetailPage.jsx` exposes the action only for `confirmed` and `in_progress`, and hides it when there is a dispute record or the current user has already reviewed the rental. Keep this distinction when describing or changing the flow.
+- Either rental party can open a dispute in `confirmed`, `in_progress`, or within seven days after completion, provided there is no active dispute. The reporter can withdraw a `pending` or `escalated` dispute.
+- The seven-day submission window for disputes and reviews uses `completedAt`, with `returnReport.approvedAt` then `endDate` for legacy records. The web rental detail uses the action eligibility returned by `GET /api/views/my-rentals`.
 
 ## Important APIs
 
