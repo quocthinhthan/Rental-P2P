@@ -82,10 +82,11 @@ function PostItemPage() {
   const isEditMode = Boolean(itemId);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const userId = user?._id;
 
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
-  const [pageLoading, setPageLoading] = useState(isEditMode);
+  const [editState, setEditState] = useState(null);
   const [imageFiles, setImageFiles] = useState([]);
   const [images, setImages] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -99,11 +100,14 @@ function PostItemPage() {
   const [tilesError, setTilesError] = useState(false);
   const [tileRetry, setTileRetry] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
+  const isReadOnly = isEditMode && Boolean(editState?.readOnly);
+  const isPreviewVisible = isReadOnly || showPreview;
 
   const {
     control,
     register,
     handleSubmit,
+    reset,
     setValue,
     watch,
     getValues,
@@ -152,48 +156,48 @@ function PostItemPage() {
 
   useEffect(() => {
     if (!isEditMode) return;
+    let active = true;
 
     const fetchItemData = async () => {
       try {
         const response = await apiService.getItemDetails(itemId);
+        if (!active) return;
         const item = response.data;
 
-        if (!user || user._id !== item.owner._id) {
-          setApiError("You don't have permission to edit this item.");
-          setPageLoading(false);
+        if (!userId || userId !== item.owner?._id) {
+          setEditState({ itemId, userId, error: 'Bạn không có quyền xem vật phẩm này.' });
           return;
         }
 
-        setValue('name', item.name);
-        setValue('description', item.description);
-        setValue('pricePerDay', item.pricePerDay);
-        setValue('baseValue', item.baseValue ?? (item.pricePerDay * 10));
-        setValue('depositPercentage', item.depositPercentage ?? 100);
-        setValue('address', item.address);
-        setValue('category', item.category);
-
-        if (item.mapLocation) {
-          const nextLocation = {
-            lat: Number(item.mapLocation.lat),
-            lng: Number(item.mapLocation.lng),
-          };
-          setSelectedLocation(nextLocation);
-          setValue('lat', nextLocation.lat, { shouldValidate: true });
-          setValue('lng', nextLocation.lng, { shouldValidate: true });
-        }
-
-        if (item.images && item.images.length > 0) {
-          setImages(item.images);
-        }
-      } catch (err) {
-        setApiError('Failed to load item data.');
-      } finally {
-        setPageLoading(false);
+        const location = item.mapLocation ? {
+          lat: Number(item.mapLocation.lat),
+          lng: Number(item.mapLocation.lng),
+        } : null;
+        reset({
+          name: item.name,
+          description: item.description ?? '',
+          pricePerDay: item.pricePerDay,
+          baseValue: item.baseValue ?? (item.pricePerDay * 10),
+          depositPercentage: item.depositPercentage ?? 100,
+          address: item.address ?? '',
+          category: item.category ?? '',
+          lat: location?.lat ?? '',
+          lng: location?.lng ?? '',
+        });
+        setSelectedLocation(location);
+        setImages(item.images ?? []);
+        setImageFiles([]);
+        setApiError(null);
+        setShowPreview(false);
+        setEditState({ itemId, userId, readOnly: Boolean(item.delistedByAdmin) });
+      } catch {
+        if (active) setEditState({ itemId, userId, error: 'Không thể tải thông tin vật phẩm.' });
       }
     };
 
     fetchItemData();
-  }, [itemId, isEditMode, setValue, user]);
+    return () => { active = false; };
+  }, [itemId, isEditMode, reset, userId]);
 
   const formatCurrency = (value) => {
     const numericValue = Number(value);
@@ -351,6 +355,8 @@ function PostItemPage() {
   };
 
   const onSubmit = async (data) => {
+    if (isReadOnly) return;
+
     const isEkycValid = user?.ekycStatus === 'verified'
       && (!user?.ekycExpiresAt || new Date(user.ekycExpiresAt) > new Date());
 
@@ -435,24 +441,32 @@ function PostItemPage() {
     }
   };
 
-  if (pageLoading) {
+  if (isEditMode && (editState?.itemId !== itemId || editState.userId !== userId)) {
     return <div className="container py-5 text-center">Đang tải dữ liệu...</div>;
   }
+
+  if (isEditMode && editState.error) {
+    return <div className="alert alert-danger m-4" role="alert">{editState.error}</div>;
+  }
+
+  const pageTitle = isReadOnly ? 'Xem chi tiết vật phẩm' : isEditMode ? 'Chỉnh sửa vật phẩm' : 'Đăng vật phẩm mới';
 
   return (
     <>
       <div className="container-fluid page-header post-item-page-header py-5">
         <h1 className="text-center text-white display-6 wow fadeInUp" data-wow-delay="0.1s">
-          {isEditMode ? 'Chỉnh sửa vật phẩm' : 'Đăng vật phẩm mới'}
+          {pageTitle}
         </h1>
         <ol className="breadcrumb justify-content-center mb-0 wow fadeInUp" data-wow-delay="0.3s">
           <li className="breadcrumb-item"><Link to="/">Trang chủ</Link></li>
-          <li className="breadcrumb-item active text-white">{isEditMode ? 'Chỉnh sửa' : 'Đăng vật phẩm'}</li>
+          <li className="breadcrumb-item active text-white">
+            {isReadOnly ? 'Xem chi tiết' : isEditMode ? 'Chỉnh sửa' : 'Đăng vật phẩm'}
+          </li>
         </ol>
       </div>
 
       <div className="container-fluid bg-light overflow-hidden py-5">
-        <div className="container py-4">
+        <form className="container py-4 post-item-form" onSubmit={handleSubmit(onSubmit)}>
           {!isEditMode && (user?.ekycStatus !== 'verified' || (user?.ekycExpiresAt && new Date(user.ekycExpiresAt) <= new Date())) && (
             <div className="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4" role="alert">
               <div>
@@ -464,7 +478,13 @@ function PostItemPage() {
               </Link>
             </div>
           )}
-          <form onSubmit={handleSubmit(onSubmit)} className="post-item-form">
+          {isReadOnly && (
+            <div className="alert alert-warning mb-4">
+              Sản phẩm đã bị quản trị viên ẩn. Bạn chỉ có thể xem thông tin.
+            </div>
+          )}
+          <fieldset disabled={isReadOnly}>
+            <legend className="visually-hidden">Biểu mẫu vật phẩm</legend>
             {apiError && (
               <div className="alert alert-danger" role="alert">{apiError}</div>
             )}
@@ -505,7 +525,7 @@ function PostItemPage() {
                         <div className="ms-auto d-flex gap-1">
                           <button
                             type="button"
-                            className={`btn btn-xs py-1 px-2 btn-preview-tab ${!showPreview ? 'btn-primary text-white' : 'btn-light border-0 text-dark'}`}
+                            className={`btn btn-xs py-1 px-2 btn-preview-tab ${!isPreviewVisible ? 'btn-primary text-white' : 'btn-light border-0 text-dark'}`}
                             onClick={() => setShowPreview(false)}
                             style={{ fontSize: '0.78rem', borderRadius: '4px' }}
                           >
@@ -513,7 +533,7 @@ function PostItemPage() {
                           </button>
                           <button
                             type="button"
-                            className={`btn btn-xs py-1 px-2 btn-preview-tab ${showPreview ? 'btn-primary text-white' : 'btn-light border-0 text-dark'}`}
+                            className={`btn btn-xs py-1 px-2 btn-preview-tab ${isPreviewVisible ? 'btn-primary text-white' : 'btn-light border-0 text-dark'}`}
                             onClick={() => setShowPreview(true)}
                             style={{ fontSize: '0.78rem', borderRadius: '4px' }}
                           >
@@ -524,7 +544,7 @@ function PostItemPage() {
 
                       <input type="hidden" {...register('description')} />
 
-                      {!showPreview ? (
+                      {!isPreviewVisible ? (
                         <div className="ckeditor-wrapper border rounded-bottom bg-white">
                           <CKEditor
                             editor={ClassicEditor}
@@ -547,7 +567,9 @@ function PostItemPage() {
                               dangerouslySetInnerHTML={{ __html: sanitizeDescription(watchDescription) }}
                             />
                           ) : (
-                            <em className="text-muted small">Nội dung xem trước sẽ hiển thị ở đây khi bạn nhập mô tả...</em>
+                            <em className="text-muted small">
+                              {isReadOnly ? 'Vật phẩm chưa có mô tả.' : 'Nội dung xem trước sẽ hiển thị ở đây khi bạn nhập mô tả...'}
+                            </em>
                           )}
                         </div>
                       )}
@@ -566,7 +588,8 @@ function PostItemPage() {
                             value={field.value ?? ''}
                             onChange={(val) => field.onChange(val)}
                             onBlur={field.onBlur}
-                            options={categoryOptions}
+                            options={isReadOnly ? [field.value ?? ''] : categoryOptions}
+                            disabled={isReadOnly}
                             placeholder="Chọn danh mục"
                             isInvalid={Boolean(errors.category)}
                             ariaLabel="Danh mục"
@@ -644,7 +667,8 @@ function PostItemPage() {
                             value={field.value ?? 100}
                             onChange={(val) => field.onChange(Number(val))}
                             onBlur={field.onBlur}
-                            options={depositOptions}
+                            options={isReadOnly ? [{ value: field.value ?? 100, label: `${field.value ?? 100}%` }] : depositOptions}
+                            disabled={isReadOnly}
                             isInvalid={Boolean(errors.depositPercentage)}
                             ariaLabel="Tỉ lệ tiền cọc yêu cầu"
                           />
@@ -712,13 +736,19 @@ function PostItemPage() {
                               <strong>{formatCurrency(priceSuggestion.ruleBasedPrice)}</strong>
                             </div>
                           </div>
-                          <div className="col-md-4">
-                            <div className="post-item-price-card">
-                              <span>AI phân tích</span>
-                              <strong>{formatCurrency(priceSuggestion.aiSuggestedPrice)}</strong>
+                          {Number.isFinite(priceSuggestion.aiSuggestedPrice) && (
+                            <div className="col-md-4">
+                              <div className="post-item-price-card">
+                                <span>AI phân tích</span>
+                                <strong>{formatCurrency(priceSuggestion.aiSuggestedPrice)}</strong>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
+
+                        {priceSuggestion.aiSuggestedPrice === null && priceSuggestion.aiReasoning && (
+                          <p className="text-muted small mt-2 mb-0">{priceSuggestion.aiReasoning}</p>
+                        )}
 
                         {priceSuggestion.marketContext && (
                           <div className="text-muted small mt-2">
@@ -774,7 +804,7 @@ function PostItemPage() {
                     <span className="post-item-step">4</span>
                     <div>
                       <h2>Vị trí nhận/trả</h2>
-                      <p>Chọn chính xác trên bản đồ để người thuê tìm đồ quanh họ.</p>
+                      {!isReadOnly && <p>Chọn chính xác trên bản đồ để người thuê tìm đồ quanh họ.</p>}
                     </div>
                   </div>
 
@@ -784,7 +814,13 @@ function PostItemPage() {
                       zoom={15}
                       minZoom={5}
                       maxZoom={18}
-                      scrollWheelZoom
+                      zoomControl={!isReadOnly}
+                      scrollWheelZoom={!isReadOnly}
+                      doubleClickZoom={!isReadOnly}
+                      touchZoom={!isReadOnly}
+                      boxZoom={!isReadOnly}
+                      dragging={!isReadOnly}
+                      keyboard={!isReadOnly}
                       className="post-item-map"
                     >
                       <TileLayer
@@ -793,12 +829,14 @@ function PostItemPage() {
                         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                         eventHandlers={{ tileerror: () => setTilesError(true) }}
                       />
-                      <LocationMapEvents onPick={setPickedLocation} />
+                      {!isReadOnly && <LocationMapEvents onPick={setPickedLocation} />}
                       <LocationMapRecenter center={mapCenter} />
                       {selectedLocation && (
                         <Marker
                           position={[selectedLocation.lat, selectedLocation.lng]}
                           icon={itemLocationIcon}
+                          interactive={!isReadOnly}
+                          keyboard={!isReadOnly}
                         />
                       )}
                     </MapContainer>
@@ -842,7 +880,7 @@ function PostItemPage() {
                     <textarea
                       rows="3"
                       className={`form-control ${errors.address ? 'is-invalid' : ''}`}
-                      placeholder="Click trên bản đồ để tự điền địa chỉ"
+                      placeholder={isReadOnly ? 'Chưa có địa chỉ nhận/trả' : 'Click trên bản đồ để tự điền địa chỉ'}
                       {...register('address', { required: 'Vui lòng chọn vị trí hoặc nhập địa chỉ' })}
                     />
                     {errors.address && <div className="invalid-feedback">{errors.address.message}</div>}
@@ -857,7 +895,7 @@ function PostItemPage() {
                     ) : (
                       <>
                         <span><i className="fas fa-map-marker-alt me-2"></i>Chưa chọn vị trí</span>
-                        <strong>Click trên bản đồ để ghim nơi nhận/trả.</strong>
+                        <strong>{isReadOnly ? 'Chưa có tọa độ nhận/trả.' : 'Click trên bản đồ để ghim nơi nhận/trả.'}</strong>
                       </>
                     )}
                   </div>
@@ -876,7 +914,7 @@ function PostItemPage() {
                 </div>
 
                 <div className="post-item-submit-panel">
-                  <small className="text-muted">Các trường có dấu * là bắt buộc.</small>
+                  {!isReadOnly && <small className="text-muted">Các trường có dấu * là bắt buộc.</small>}
                   <div className="d-grid gap-2 mt-3">
                     <button type="submit" className="btn btn-primary" disabled={loading || uploading}>
                       {loading ? 'Đang lưu...' : (isEditMode ? 'Lưu thay đổi' : 'Đăng vật phẩm')}
@@ -888,8 +926,8 @@ function PostItemPage() {
                 </div>
               </div>
             </div>
-          </form>
-        </div>
+          </fieldset>
+        </form>
       </div>
     </>
   );

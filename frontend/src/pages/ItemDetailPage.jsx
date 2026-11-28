@@ -2,6 +2,7 @@ import React, { useState, useEffect, forwardRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import apiService from '../services/api';
+import { ItemStatus } from '../constants/enums';
 import ReportItemModal from '../components/Items/ReportItemModal';
 import DatePicker from 'react-datepicker';
 import Swal from 'sweetalert2';
@@ -16,6 +17,12 @@ import {
 import { formatItemCode } from '../utils/itemCode';
 import { sanitizeDescription } from '../utils/sanitize';
 import UserTrustSummary, { RatingSummary, TrustBadge } from '../components/Trust/TrustBadge';
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const formatBookingAmount = (value) => {
+  const roundedAmount = Math.round(value * 100) / 100;
+  return `${roundedAmount.toLocaleString('vi-VN', { maximumFractionDigits: 2 })}đ`;
+};
 
 /* ─────────────────────────────────────────
    Helper: star renderer
@@ -321,8 +328,8 @@ function ItemDetailPage() {
             setCategoryItemsLoading(false);
           }
         }
-      } catch {
-        setError('Không thể tải dữ liệu sản phẩm.');
+      } catch (err) {
+        setError(err.response?.status === 404 ? 'Sản phẩm không còn hiển thị.' : 'Không thể tải dữ liệu sản phẩm.');
       } finally {
         setLoading(false);
         setTimeout(() => {
@@ -446,9 +453,9 @@ function ItemDetailPage() {
       
       Swal.fire({
         title: 'Yêu cầu thuê thành công! 🎉',
-        text: 'Yêu cầu thuê đồ của bạn đã được tạo. Hệ thống sẽ chuyển hướng bạn sang cổng thanh toán VNPay để tiến hành đặt cọc (ký quỹ) bảo đảm giao dịch.',
+        text: `Thanh toán ${formatBookingAmount(res.data.totalAmount)} qua VNPay, gồm tiền thuê và tiền cọc.`,
         icon: 'success',
-        confirmButtonText: 'Tiến hành đặt cọc',
+        confirmButtonText: 'Thanh toán qua VNPay',
         confirmButtonColor: '#ffb524',
         allowOutsideClick: false
       }).then(() => {
@@ -604,13 +611,24 @@ function ItemDetailPage() {
   if (error)  return <div className="alert alert-danger m-4">{error}</div>;
   if (!item)  return <div className="alert alert-warning m-4">Vật phẩm không tồn tại.</div>;
 
-  const isOwner = isLoggedIn && user?._id === item.owner._id;
+  const isOwner = isLoggedIn && user?._id === item.owner?._id;
+  const isHidden = item.status === ItemStatus.DELISTED || item.delistedByAdmin;
+  if (isHidden && !isOwner) {
+    return <div className="alert alert-warning m-4">Sản phẩm không còn hiển thị.</div>;
+  }
+
   const availability = getAvailabilityStatus(item.bookedDates);
   const allImages = item.images?.length ? item.images : [item.mainImage || 'https://via.placeholder.com/600'];
   const activeImageSources = getDetailMainImage(allImages[activeImg]);
   const depositPercentage = Number(item.depositPercentage ?? 100);
   const baseValue = Number(item.baseValue ?? 0);
   const depositAmount = (baseValue * depositPercentage) / 100;
+  // Match POST /rentals, which includes both endpoints of the submitted date range.
+  const rentalDays = startDate && endDate
+    ? Math.ceil((endDate - startDate) / MILLISECONDS_PER_DAY) + 1
+    : 0;
+  const rentalFee = rentalDays * Number(item.pricePerDay);
+  const estimatedTotal = rentalFee + depositAmount;
   const ownerProfile = item.owner ? {
     ...item.owner,
     averageRating: item.owner.averageRating ?? 0,
@@ -787,14 +805,20 @@ function ItemDetailPage() {
 
             {/* Row 2: Status & Trust Indicators (High-priority action-oriented info) */}
             <div className="d-flex align-items-center gap-3 mb-4 flex-wrap">
-              <span className={`idp-status-badge ${availability.badgeClass}`}>
-                {availability.status === 'AVAILABLE' && <i className="fas fa-check-circle me-1" />}
-                {availability.status === 'AVAILABLE_TODAY' && <i className="fas fa-info-circle me-1" />}
-                {availability.status === 'RENTED' && <i className="fas fa-history me-1" />}
-                {availability.label}
-              </span>
+              {isHidden ? (
+                <span className="idp-status-badge text-dark bg-light">
+                  {item.delistedByAdmin ? 'Đã bị quản trị viên ẩn' : 'Đang tạm ẩn'}
+                </span>
+              ) : (
+                <span className={`idp-status-badge ${availability.badgeClass}`}>
+                  {availability.status === 'AVAILABLE' && <i className="fas fa-check-circle me-1" />}
+                  {availability.status === 'AVAILABLE_TODAY' && <i className="fas fa-info-circle me-1" />}
+                  {availability.status === 'RENTED' && <i className="fas fa-history me-1" />}
+                  {availability.label}
+                </span>
+              )}
               
-              {availability.subLabel && (
+              {!isHidden && availability.subLabel && (
                 <span className={`idp-status-sublabel ${availability.badgeClass}`}>
                   {availability.subLabel}
                 </span>
@@ -811,7 +835,7 @@ function ItemDetailPage() {
             </div>
             <div className="mb-4">
               <div className="text-muted" style={{ fontSize: '.9rem' }}>
-                Tiền cọc yêu cầu: <strong>{depositAmount.toLocaleString('vi-VN')}đ</strong> ({depositPercentage}%)
+                Tiền cọc yêu cầu: <strong>{formatBookingAmount(depositAmount)}</strong> ({depositPercentage}%)
               </div>
             </div>
 
@@ -820,7 +844,9 @@ function ItemDetailPage() {
 
               {/* Form area */}
               <div className="idp-booking-form-area">
-                {!isOwner ? (
+                {item.delistedByAdmin ? (
+                  <div className="alert alert-warning mb-0">Bạn chỉ có thể xem chi tiết sản phẩm này.</div>
+                ) : !isOwner ? (
                   <>
                     <h5 className="mb-4">
                       <i className="fas fa-calendar-check text-primary me-2" />
@@ -888,20 +914,24 @@ function ItemDetailPage() {
                           onChange={(e) => setNote(e.target.value)}
                         />
                       </div>
-                      {startDate && endDate && (
-                        <div className="mb-3 px-3 py-2 rounded-3 bg-white border" style={{ fontSize: '.85rem' }}>
-                          <span className="text-muted">Tổng ước tính: </span>
-                          <strong className="text-primary">
-                            {(
-                              Number(item.pricePerDay) *
-                              Math.max(1, Math.ceil((endDate - startDate) / 86400000))
-                            ).toLocaleString('vi-VN')}đ
-                          </strong>
-                          <span className="text-muted">
-                            {' '}({Math.max(1, Math.ceil((endDate - startDate) / 86400000))} ngày)
-                          </span>
-                        </div>
-                      )}
+                      <div role="status">
+                        {rentalDays > 0 && (
+                          <dl className="mb-3 px-3 py-2 rounded-3 bg-white border small">
+                            <div className="d-flex justify-content-between gap-2">
+                              <dt className="fw-normal text-muted">Tiền thuê ({rentalDays} ngày)</dt>
+                              <dd className="mb-0">{formatBookingAmount(rentalFee)}</dd>
+                            </div>
+                            <div className="d-flex justify-content-between gap-2">
+                              <dt className="fw-normal text-muted">Tiền cọc</dt>
+                              <dd className="mb-0">{formatBookingAmount(depositAmount)}</dd>
+                            </div>
+                            <div className="d-flex justify-content-between gap-2 border-top mt-2 pt-2 fw-bold">
+                              <dt>Tổng thanh toán ước tính</dt>
+                              <dd className="mb-0 text-primary">{formatBookingAmount(estimatedTotal)}</dd>
+                            </div>
+                          </dl>
+                        )}
+                      </div>
                       <button
                         className="btn-submit"
                         type="submit"

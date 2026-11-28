@@ -8,6 +8,7 @@ const MESSAGES = require('../constants/messages.constant');
 const { ItemStatus } = require('../enums/item.enum');
 const { RentalStatus, PaymentStatus } = require('../enums/rental.enum');
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const {
   getTrustLevelFromScore,
   toSafeUserTrustSummary
@@ -16,18 +17,43 @@ const {
   ACTIVE_BOOKING_STATUSES,
   toStartOfDay
 } = require('../services/itemAvailability.service');
+const { getRentalActions, isActiveDispute } = require('../services/rentalActions.service');
 
 // GET /api/views/item-details/:id
 exports.getItemDetailView = async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Authorization');
+
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ message: MESSAGES.COMMON.INVALID_ITEM_ID });
   }
 
   try {
+    let currentUser = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+        if (decoded?.id && !decoded.purpose) {
+          currentUser = await User.findById(decoded.id).select('favorites isBanned suspendedUntil');
+        }
+      } catch (_) {
+        // An invalid or expired token is treated as an anonymous request.
+      }
+    }
+
+    const isActiveUser = Boolean(currentUser && !currentUser.isBanned &&
+      !(currentUser.suspendedUntil > new Date()));
+    const ownerFields = 'fullName avatarUrl _id ekycStatus averageRating totalReviews trustScore';
     const item = await Item.findById(req.params.id)
-      .populate('ownerId', 'fullName avatarUrl phoneNumber _id ekycStatus averageRating totalReviews trustScore');
+      .populate('ownerId', isActiveUser ? `${ownerFields} phoneNumber` : ownerFields);
 
     if (!item) {
+      return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
+    }
+
+    const isOwner = isActiveUser && currentUser._id.equals(item.ownerId?._id);
+    if ((item.status === ItemStatus.DELISTED || item.delistedByAdmin) && !isOwner) {
       return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
     }
 
@@ -38,22 +64,6 @@ exports.getItemDetailView = async (req, res) => {
       status: { $in: ACTIVE_BOOKING_STATUSES },
       endDate: { $gte: today }
     }).select('startDate endDate');
-
-    // isFavorited — check only when caller is authenticated
-    let isFavorited = false;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
-        const currentUser = await User.findById(decoded.id).select('favorites');
-        if (currentUser) {
-          isFavorited = currentUser.favorites.some(id => id.equals(item._id));
-        }
-      } catch (_) {
-        // token invalid or expired — treat as unauthenticated, isFavorited stays false
-      }
-    }
 
     const hasMapLocation = (
       item.location &&
@@ -73,6 +83,7 @@ exports.getItemDetailView = async (req, res) => {
       description:       item.description,
       category:          item.category,
       status:            item.status,
+      delistedByAdmin:   Boolean(item.delistedByAdmin),
       isFeatured:        item.isFeatured,
       images:            item.images,
       pricePerDay:       item.pricePerDay,
@@ -85,11 +96,11 @@ exports.getItemDetailView = async (req, res) => {
       } : null,
       owner: item.ownerId ? {
         ...toSafeUserTrustSummary(item.ownerId),
-        phoneNumber: item.ownerId.phoneNumber
+        ...(isActiveUser ? { phoneNumber: item.ownerId.phoneNumber || null } : {})
       } : null,
       bookedDates:      confirmedRentals,
       blockedDates:     upcomingBlockedDates,
-      isFavorited
+      isFavorited:       currentUser?.favorites?.some(id => id.equals(item._id)) ?? false
     };
 
     res.status(200).json(viewData);
@@ -148,8 +159,8 @@ exports.getMyRentalsView = async (req, res) => {
       });
     
     // 3. Lấy các vật phẩm tôi đã đăng (myItems)
-    const myItems = await Item.find({ ownerId: userId, status: { $ne: ItemStatus.DELISTED } })
-      .select('code name pricePerDay category status images')
+    const myItems = await Item.find({ ownerId: userId })
+      .select('code name pricePerDay category status delistedByAdmin images')
       .sort({ createdAt: -1 });
 
     const rentalIds = [...asRenter, ...asOwner].map((rental) => rental._id);
@@ -174,7 +185,7 @@ exports.getMyRentalsView = async (req, res) => {
       .populate('resolvedBy', '_id fullName email');
     const disputeByRental = relatedDisputes.reduce((acc, dispute) => {
       const rentalKey = dispute.rentalId.toString();
-      if (!acc[rentalKey]) {
+      if (!acc[rentalKey] || (isActiveDispute(dispute) && !isActiveDispute(acc[rentalKey]))) {
         acc[rentalKey] = dispute;
       }
       return acc;
@@ -267,6 +278,7 @@ exports.getMyRentalsView = async (req, res) => {
             status: rental.status,
             createdAt: rental.createdAt,
             updatedAt: rental.updatedAt,
+            completedAt: rental.completedAt,
             note: rental.note,
             cancellationReason: rental.cancellationReason || '',
             cancelledBy: rental.cancelledBy || null,
@@ -296,6 +308,7 @@ exports.getMyRentalsView = async (req, res) => {
             renter: renterSummary,
             owner: ownerSummary,
             dispute: formatDisputeDetail(dispute),
+            actions: getRentalActions(rental, { dispute, userId, hasMyReview: Boolean(myReview) }),
             review: {
               status: reviewStatus,
               hasMyReview: Boolean(myReview),
@@ -330,6 +343,7 @@ exports.getMyRentalsView = async (req, res) => {
           pricePerDay: item.pricePerDay,
           category: item.category,
           status: item.status,
+          delistedByAdmin: Boolean(item.delistedByAdmin),
           mainImage: (item.images && item.images.length > 0) ? item.images[0] : ''
       }))
     });

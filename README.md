@@ -95,6 +95,16 @@ graph TD
 
 ---
 
+### Tạo tài khoản quản trị ban đầu
+
+Thiết lập `ADMIN_SEED_PASSWORD` bằng mật khẩu khởi tạo qua biến môi trường của phiên chạy. Lệnh dùng `MONGO_URI` từ môi trường hoặc file `.env` ở thư mục gốc của dự án.
+
+```bash
+npm --prefix backend run seed:admin
+```
+
+Lệnh tạo tài khoản `admin@rentalhub.thanquocthinh.id.vn` với quyền `admin`. Chạy lại lệnh sẽ giữ mật khẩu hiện tại. Admin có thể tự đặt mật khẩu mới qua **Quên mật khẩu?** trên trang đăng nhập nếu có quyền truy cập hộp thư của tài khoản.
+
 ### Chạy ở Môi trường Phát triển (Tương đương Level 2)
 
 Môi trường này hỗ trợ live-reload code và scaling với Docker Compose, phù hợp cho việc phát triển và demo Level 2.

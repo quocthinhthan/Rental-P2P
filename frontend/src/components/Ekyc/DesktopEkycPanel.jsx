@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import apiService from '../../services/api';
@@ -114,39 +114,41 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
   const [socketConnected, setSocketConnected] = useState(false);
+  const [syncedProfileKey, setSyncedProfileKey] = useState('');
 
-  const syncedCompletionRef = useRef('');
-
-  const refreshAccountUser = useCallback(async () => {
-    try {
-      const [statusRes, meRes] = await Promise.all([
-        apiService.getEkycStatus(),
-        apiService.getMe(),
-      ]);
-      setAccountStatus(statusRes.data);
-      if (meRes?.data && onVerifiedSuccess) {
-        onVerifiedSuccess(meRes.data);
-      }
-    } catch (err) {
-      console.error('Failed to sync verified user state:', err);
-    }
-  }, [onVerifiedSuccess]);
-
-  const handleIncomingSessionState = useCallback(
-    (nextSession) => {
-      if (!nextSession) return;
-      setSession(nextSession);
-
-      if (
-        nextSession.status === 'COMPLETED'
-        && syncedCompletionRef.current !== nextSession.sessionId
-      ) {
-        syncedCompletionRef.current = nextSession.sessionId;
-        refreshAccountUser();
-      }
-    },
-    [refreshAccountUser]
+  const completedSessionId = session?.status === 'COMPLETED' ? session.sessionId : '';
+  const hasUpdatedVerification = accountStatus?.isVerifiedAndValid && (
+    user?.ekycStatus !== 'verified' ||
+    (accountStatus.verifiedAt && accountStatus.verifiedAt !== user?.ekycVerifiedAt)
   );
+  const profileSyncKey = completedSessionId ||
+    (hasUpdatedVerification ? `account:${accountStatus.verifiedAt || user?._id}` : '');
+
+  useEffect(() => {
+    if (!onVerifiedSuccess || !profileSyncKey || profileSyncKey === syncedProfileKey) return;
+
+    let active = true;
+    let retryTimer;
+    const syncProfile = async () => {
+      try {
+        const { data } = await apiService.getMe();
+        if (active && data) {
+          setSyncedProfileKey(profileSyncKey);
+          onVerifiedSuccess(data);
+        }
+      } catch (error) {
+        if (active && ![401, 403].includes(error.response?.status)) {
+          retryTimer = window.setTimeout(syncProfile, 4500);
+        }
+      }
+    };
+
+    syncProfile();
+    return () => {
+      active = false;
+      window.clearTimeout(retryTimer);
+    };
+  }, [onVerifiedSuccess, profileSyncKey, syncedProfileKey]);
 
   // Initial status fetch
   useEffect(() => {
@@ -171,7 +173,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
     return () => {
       mounted = false;
     };
-  }, [user?.ekycStatus]);
+  }, [user?.ekycStatus, user?.ekycVerifiedAt]);
 
   // Network online/offline awareness
   useEffect(() => {
@@ -236,9 +238,15 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
       setSocketConnected(false);
     };
 
+    const applySessionUpdate = (nextSession) => {
+      setSession((current) => (
+        current?.sessionId === activeSessionId && current.status !== 'COMPLETED' ? nextSession : current
+      ));
+    };
+
     const handleSessionUpdated = (payload) => {
       if (payload?.sessionId === activeSessionId) {
-        handleIncomingSessionState(payload);
+        applySessionUpdate(payload);
       }
     };
 
@@ -252,7 +260,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
       try {
         const res = await apiService.getEkycSessionOwner(activeSessionId);
         if (res.data?.session) {
-          handleIncomingSessionState(res.data.session);
+          applySessionUpdate(res.data.session);
         }
       } catch {
         // Ignore transient poll errors while socket is active
@@ -277,7 +285,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
       socket.disconnect();
       setSocketConnected(false);
     };
-  }, [session?.sessionId, session?.status, handleIncomingSessionState]);
+  }, [session?.sessionId, session?.status]);
 
   const handleStartVerification = async (preferredMode) => {
     const mode = preferredMode || (isMobileDevice ? 'DIRECT' : 'QR');
@@ -379,9 +387,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
               </span>
             </div>
             <div className="acc-ekyc-verified-sub mt-1">
-              {accountStatus?.verificationMethod === 'DOCUMENT_AND_FACE_MATCH'
-                ? 'Đã hoàn tất kiểm tra CCCD hai mặt & đối sánh khuôn mặt qua Viettel AI.'
-                : 'Đã hoàn tất kiểm tra CCCD hai mặt & xác thực thực thể sống 5 tư thế qua Viettel AI.'}
+              Tài khoản của bạn đã hoàn tất xác minh danh tính và đủ điều kiện thực hiện mọi giao dịch trên nền tảng.
             </div>
             {(maskedId || expiryText) && (
               <div className="d-flex flex-wrap gap-3 mt-2 small text-dark">
@@ -479,12 +485,12 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
         <div className="ekyc-desktop-steps">
           {[
             { label: '1. Kết nối điện thoại', idx: 1 },
-            { label: '2. Kiểm tra & OCR CCCD', idx: 2 },
+            { label: '2. Xác minh CCCD', idx: 2 },
             {
               label:
                 session.livenessTotalPoses > 0
-                  ? `3. Liveness (${session.livenessCompletedPoses || 0}/${session.livenessTotalPoses})`
-                  : '3. Thực thể sống (5 tư thế)',
+                  ? `3. Xác thực khuôn mặt (${session.livenessCompletedPoses || 0}/${session.livenessTotalPoses})`
+                  : '3. Xác thực khuôn mặt',
               idx: 3,
             },
             { label: '4. Hoàn tất xác minh', idx: 4 },
@@ -516,8 +522,10 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
             </div>
             <div className="flex-grow-1">
               <div className="acc-ekyc-verified-title">Xác minh danh tính thành công!</div>
-              <div className="acc-ekyc-verified-sub">
-                Hồ sơ của bạn đã được cập nhật tự động mà không cần tải lại trang.
+              <div className="acc-ekyc-verified-sub" role="status">
+                {syncedProfileKey === completedSessionId
+                  ? 'Thông tin tài khoản đã được cập nhật tự động.'
+                  : 'Kết quả xác minh đã được lưu. Đang đồng bộ thông tin tài khoản…'}
               </div>
               {session.resultSummary && (
                 <div className="d-flex flex-wrap gap-3 mt-2 small text-dark">
@@ -664,7 +672,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
           <p className="text-muted small mb-0">
             {reverificationRequired
               ? accountStatus?.reverificationReason
-              : 'Kiểm tra tính hợp lệ thẻ CCCD hai mặt và xác thực thực thể sống 5 tư thế qua Viettel AI giúp tăng độ tin cậy giao dịch trên nền tảng.'}
+              : 'Xác minh giấy tờ CCCD và xác thực khuôn mặt giúp bảo vệ tài khoản và tăng độ tin cậy khi giao dịch trên nền tảng.'}
           </p>
         </div>
 
@@ -705,7 +713,7 @@ export default function DesktopEkycPanel({ user, onVerifiedSuccess }) {
           </div>
           <div className="ekyc-benefit-title">Bảo mật &amp; Nhanh chóng</div>
           <p className="ekyc-benefit-desc">
-            Thực hiện trên điện thoại trong 1 phút qua dịch vụ Viettel AI; ảnh CCCD không bị lưu công khai.
+            Thực hiện nhanh chóng trên điện thoại; dữ liệu định danh được mã hóa và bảo mật an toàn.
           </p>
         </div>
       </div>

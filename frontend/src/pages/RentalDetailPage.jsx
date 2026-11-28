@@ -73,17 +73,6 @@ const getDisputeFromRental = (rental) => (
 
 const hasPickupProof = (rental) => Array.isArray(rental?.pickupImages) && rental.pickupImages.length > 0;
 
-const canCreateDispute = (rental, dispute) => {
-  if (!rental || dispute?.status) return false;
-  // Cho phép tạo tranh chấp khi đơn đã xác nhận (confirmed) hoặc đang trong quá trình thuê (in_progress)
-  if (['pending_payment', 'pending_confirmation', 'rejected', 'cancelled', 'disputed', 'completed'].includes(rental.status)) {
-    return false;
-  }
-
-  return ['confirmed', 'in_progress'].includes(rental.status);
-};
-
-
 const lifecycleStepMeta = [
   {
     key: 'payment',
@@ -133,38 +122,11 @@ const isPastRentalEndDate = (rental) => {
 };
 
 const getPastEndDateHelperText = (rental) => {
-  if (rental?.status === 'completed' || hasReturnProof(rental) || !hasPickupProof(rental) || !isPastRentalEndDate(rental)) {
+  if (rental?.status !== 'in_progress' || hasReturnProof(rental) || !isPastRentalEndDate(rental)) {
     return '';
   }
 
   return 'Đơn đã qua ngày thuê, vui lòng hoàn tất/trả đồ.';
-};
-
-const getConfirmedTimelineStatus = (rental, isFullySigned) => {
-  if (hasPickupProof(rental)) return 'in_progress';
-  return isFullySigned ? 'confirmed_ready_for_pickup' : 'confirmed';
-};
-
-const getTimelineStatusAfterDisputeRestore = (rental, dispute, isFullySigned) => {
-  if (!rental) return '';
-
-  if (rental.status === 'completed' || dispute?.previousRentalStatus === 'completed' || hasReturnProof(rental)) {
-    return 'completed';
-  }
-
-  if (
-    rental.status === 'in_progress' ||
-    dispute?.previousRentalStatus === 'in_progress' ||
-    hasPickupProof(rental)
-  ) {
-    return 'in_progress';
-  }
-
-  if (rental.status === 'confirmed' || dispute?.previousRentalStatus === 'confirmed') {
-    return isFullySigned ? 'confirmed_ready_for_pickup' : 'confirmed';
-  }
-
-  return rental.status || dispute?.previousRentalStatus || 'in_progress';
 };
 
 const getEffectiveTimelineStatus = (rental, dispute, isFullySigned) => {
@@ -176,31 +138,18 @@ const getEffectiveTimelineStatus = (rental, dispute, isFullySigned) => {
     return 'disputed_in_progress';
   }
 
-  if (dispute?.status === 'withdrawn') {
-    return getTimelineStatusAfterDisputeRestore(rental, dispute, isFullySigned);
+  if (dispute?.status === 'resolved' && dispute.winner === 'renter') {
+    return 'dispute_resolved_at_in_progress';
   }
 
-  if (dispute?.status === 'resolved') {
-    if (dispute.winner === 'owner' && rental.status === 'completed') {
-      return 'completed';
-    }
-
-    if (dispute.winner === 'renter') {
-      return 'dispute_resolved_at_in_progress';
-    }
-
-    if (dispute.winner === 'none') {
-      return getTimelineStatusAfterDisputeRestore(rental, dispute, isFullySigned);
-    }
-
-    return rental.status;
+  const isRestored = dispute?.status === 'withdrawn' ||
+    (dispute?.status === 'resolved' && dispute.winner === 'none');
+  const status = rental.status || (isRestored ? dispute.previousRentalStatus || 'in_progress' : '');
+  if (status === 'confirmed' && (isFullySigned || rental.pickupReport?.recordedBy || hasPickupProof(rental))) {
+    return 'confirmed_ready_for_pickup';
   }
 
-  if (rental.status === 'confirmed') {
-    return getConfirmedTimelineStatus(rental, isFullySigned);
-  }
-
-  return rental.status;
+  return status;
 };
 
 const getLifecycleIndex = (status, rental) => {
@@ -608,12 +557,10 @@ function DisputePanel({ rental, type, currentUser, onRefresh }) {
   const dispute = getDisputeFromRental(rental);
   const [disputeAction, setDisputeAction] = useState('');
   const currentUserId = getId(currentUser);
-  const reporterId = getId(dispute?.reporterId);
   const penalizeUserId = getId(dispute?.penalizeUserId);
-  const isReporter = Boolean(dispute?._id && reporterId && reporterId === currentUserId);
   const isParty = type === 'asRenter' || type === 'asOwner';
   const mediationEndsAt = dispute?.mediationEndsAt ? new Date(dispute.mediationEndsAt) : null;
-  const canWithdraw = isReporter && ['pending', 'escalated'].includes(dispute?.status);
+  const canWithdraw = rental.actions?.canWithdrawDispute;
   const canEscalate = Boolean(
     isParty &&
     dispute?._id &&
@@ -760,6 +707,7 @@ function RentalDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [rental, setRental] = useState(null);
+  const [expiredCompletionDeadline, setExpiredCompletionDeadline] = useState(null);
   const [type, setType] = useState(location.state?.type || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -818,6 +766,22 @@ function RentalDetailPage() {
     loadRental();
   }, [loadRental]);
 
+  const completionDeadline = rental?.actions?.completionDeadline;
+  const hasCompletionAction = Boolean(completionDeadline &&
+    (rental.actions.canCreateDispute || rental.actions.canReview));
+  useEffect(() => {
+    if (!hasCompletionAction) return;
+
+    const remainingMs = Date.parse(completionDeadline) - Date.now() + 1;
+    if (remainingMs <= 0) {
+      setExpiredCompletionDeadline(completionDeadline);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setExpiredCompletionDeadline(completionDeadline), remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [completionDeadline, hasCompletionAction]);
+
   const dispute = useMemo(() => getDisputeFromRental(rental), [rental]);
   const isOwnerView = type === 'asOwner';
   const isDisputed = rental?.status === 'disputed';
@@ -844,8 +808,9 @@ function RentalDetailPage() {
   const canPickup = !isDisputed && rental?.status === 'confirmed' && isFullySigned && !rental?.pickupReport?.recordedBy;
   const needsSignatureBeforePickup = !isDisputed && rental?.status === 'confirmed' && !isFullySigned;
   const canReturn = !isDisputed && rental?.status === 'in_progress' && !rental?.returnReport?.recordedBy;
-  const showCreateDispute = canCreateDispute(rental, dispute) && !rental?.review?.hasMyReview;
-  const canReview = rental?.status === 'completed' && !rental?.review?.hasMyReview;
+  const isCompletionWindowExpired = Boolean(completionDeadline && completionDeadline === expiredCompletionDeadline);
+  const showCreateDispute = rental?.actions?.canCreateDispute && !isCompletionWindowExpired;
+  const canReview = rental?.actions?.canReview && !isCompletionWindowExpired;
   const hasBothReviews = Boolean(rental?.review?.hasMyReview && rental?.review?.hasCounterpartyReview);
   const canPayEscrow = !isDisputed && !isOwnerView && rental?.status === 'pending_payment';
   const canOwnerConfirmReject = !isDisputed && isOwnerView && rental?.status === 'pending_confirmation';
@@ -1143,10 +1108,14 @@ function RentalDetailPage() {
                 </div>
               )}
 
-              {rental.status === 'completed' && canReview && (
+              {canReview && (
                 <div className="review-status-note is-waiting">
                   Bạn có thể đánh giá {isOwnerView ? 'người thuê' : 'chủ sở hữu'} cho đơn thuê này.
                 </div>
+              )}
+
+              {rental.status === 'completed' && !canReview && !rental.review?.hasMyReview && (
+                <div className="review-status-note">Hiện không thể gửi đánh giá cho đơn thuê này.</div>
               )}
 
               {rental.status === 'completed' && rental.review?.hasMyReview && !hasBothReviews && (

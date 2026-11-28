@@ -24,6 +24,8 @@ const { createEkycController } = require('../controllers/ekyc.controller');
 const { createEkycAuthMiddleware } = require('../middleware/ekycAuth.middleware');
 const { createEkycRouter } = require('../routes/ekyc.routes');
 const { checkVerified } = require('../middleware/auth.middleware');
+const IdentityProfile = require('../models/IdentityProfile.model');
+const { computeIdNumberHmac } = require('../utils/ekycCrypto');
 const { getTrustLevelFromScore } = require('../services/trustScore.service');
 const { ALL_LIVENESS_POSES } = require('../enums/ekyc.enum');
 const {
@@ -317,6 +319,135 @@ const postLivenessForm = async ({ request, baseUrl, sessionId, mobileToken, pose
   });
   return { status: res.status, body: await res.json() };
 };
+
+const beginDirectDocument = async (ctx, token) => {
+  const created = await ctx.request(`${ctx.baseUrl}/api/ekyc/sessions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initiationMode: 'DIRECT' })
+  });
+  assert.equal(created.status, 201);
+  const { session, ekycSessionToken: mobileToken } = await created.json();
+  const sessionId = session.sessionId;
+  const consent = await ctx.request(`${ctx.baseUrl}/api/ekyc/sessions/${sessionId}/consent`, {
+    method: 'POST',
+    headers: { 'X-Ekyc-Session-Token': mobileToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accepted: true })
+  });
+  assert.equal(consent.status, 200);
+  const document = await postDocumentForm({
+    ...ctx, sessionId, mobileToken,
+    frontBuf: makeValidPngBuffer({ seedByte: 0x75 }),
+    backBuf: makeValidPngBuffer({ seedByte: 0x76 })
+  });
+  return { document, sessionId, mobileToken };
+};
+
+const finishDirectLiveness = async (ctx, { sessionId, mobileToken }) => {
+  const confirmation = await ctx.request(`${ctx.baseUrl}/api/ekyc/sessions/${sessionId}/confirm-document`, {
+    method: 'POST',
+    headers: { 'X-Ekyc-Session-Token': mobileToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'CONFIRM' })
+  });
+  assert.equal(confirmation.status, 200);
+  const { session } = await confirmation.json();
+  const poses = session.livenessProgress.poses.map(({ pose }) => pose);
+  let result;
+  for (const [index, pose] of poses.entries()) {
+    result = await postLivenessForm({
+      ...ctx, sessionId, mobileToken, pose,
+      frameBuf: makeValidPngBuffer({ seedByte: 0x80 + index })
+    });
+    if (index < poses.length - 1) assert.equal(result.status, 200);
+  }
+  return result;
+};
+
+test('CCCD remains bound after revocation or ban and allows re-verification for the same account', async (t) => {
+  const ctx = await setupTestServer();
+  t.after(() => ctx.close());
+  const original = await ctx.createUserAndToken({ isBanned: true });
+  const other = await ctx.createUserAndToken();
+  await ctx.models.IdentityProfile.create({
+    userId: original.user._id,
+    idNumberHmac: computeIdNumberHmac(SAMPLE_OCR_INFO.id),
+    isActive: false
+  });
+
+  const otherAttempt = await beginDirectDocument(ctx, other.token);
+  assert.equal(otherAttempt.document.status, 409);
+  assert.equal(otherAttempt.document.body.code, 'DUPLICATE_IDENTITY_DOCUMENT');
+
+  await ctx.models.User.findByIdAndUpdate(original.user._id, { isBanned: false });
+  ctx.mockProvider.setOcrImpl(async () => ({
+    passed: true,
+    information: { ...SAMPLE_OCR_INFO, id: '079203009999' }
+  }));
+  const wrongCard = await beginDirectDocument(ctx, original.token);
+  assert.equal(wrongCard.document.status, 409);
+  assert.equal(wrongCard.document.body.code, 'IDENTITY_DOCUMENT_MISMATCH');
+
+  ctx.mockProvider.setOcrImpl(async () => ({ passed: true, information: SAMPLE_OCR_INFO }));
+  const ownAttempt = await beginDirectDocument(ctx, original.token);
+  assert.equal(ownAttempt.document.status, 200);
+  const verified = await finishDirectLiveness(ctx, ownAttempt);
+  assert.equal(verified.status, 200);
+  assert.equal(verified.body.completed, true);
+  assert.equal((await ctx.models.IdentityProfile.findOne({ userId: original.user._id })).isActive, true);
+
+  const cccdIndex = IdentityProfile.schema.indexes().find(([key]) => 'idNumberHmac' in key);
+  assert.equal(cccdIndex[1].unique, true);
+  assert.equal(cccdIndex[1].partialFilterExpression, undefined);
+});
+
+test('CCCD is checked against legacy accounts before creating a new identity profile', async (t) => {
+  const ctx = await setupTestServer();
+  t.after(() => ctx.close());
+  await ctx.createUserAndToken({ ekycStatus: 'verified', idCardNumber: SAMPLE_OCR_INFO.id });
+  const other = await ctx.createUserAndToken();
+  const { document } = await beginDirectDocument(ctx, other.token);
+  assert.equal(document.status, 409);
+  assert.equal(document.body.code, 'DUPLICATE_IDENTITY_DOCUMENT');
+  assert.equal(ctx.models.IdentityProfile._rows.length, 0);
+});
+
+test('finalization rechecks CCCD binding created after OCR', async (t) => {
+  const ctx = await setupTestServer();
+  t.after(() => ctx.close());
+  const first = await ctx.createUserAndToken();
+  const other = await ctx.createUserAndToken();
+  const attempt = await beginDirectDocument(ctx, first.token);
+  assert.equal(attempt.document.status, 200);
+
+  await ctx.models.IdentityProfile.create({
+    userId: other.user._id,
+    idNumberHmac: computeIdNumberHmac(SAMPLE_OCR_INFO.id),
+    isActive: false
+  });
+
+  const result = await finishDirectLiveness(ctx, attempt);
+  assert.equal(result.status, 409);
+  assert.equal(result.body.code, 'DUPLICATE_IDENTITY_DOCUMENT');
+  assert.equal((await ctx.models.User.findById(first.user._id)).ekycStatus, 'unverified');
+  assert.equal(await ctx.models.IdentityProfile.findOne({ userId: first.user._id }), null);
+});
+
+test('eKYC refuses to create a session if the CCCD unique index cannot be built', async (t) => {
+  const ctx = await setupTestServer();
+  t.after(() => ctx.close());
+  const { token } = await ctx.createUserAndToken();
+  t.mock.method(ctx.models.IdentityProfile, 'createIndexes', async () => {
+    throw Object.assign(new Error('index build failed'), { code: 11000 });
+  });
+  const response = await ctx.request(`${ctx.baseUrl}/api/ekyc/sessions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initiationMode: 'DIRECT' })
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'IDENTITY_INDEX_UNAVAILABLE');
+  assert.equal(ctx.models.VerificationSession._rows.length, 0);
+});
 
 // ============================================================================
 // 1. Desktop -> QR -> Mobile 5-Pose Full Liveness Happy Path (7 Requests Total)

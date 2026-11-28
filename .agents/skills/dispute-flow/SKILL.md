@@ -29,7 +29,7 @@ Design dispute handling to:
 5. The rental moves to `DISPUTED` or the project-equivalent disputed status.
 6. The system freezes sensitive rental, item, signature, and payment actions.
 7. Both parties get 48 hours to self-mediate.
-8. During mediation, the reporter may withdraw the dispute if it is not resolved.
+8. The reporter may withdraw while the dispute is `pending` or `escalated`.
 9. After `mediationEndsAt`, the UI may show `Yeu cau Admin can thiep`.
 10. When a user escalates, the dispute moves into an Admin-needed state.
 11. Admin reviews the reason, evidence, rental context, and user history.
@@ -83,7 +83,8 @@ Implement or preserve these Admin-facing APIs:
 
 ## Business Rules
 
-- Only the renter or owner of the rental may create a dispute.
+- Only the renter or owner of the rental may create a dispute in `confirmed`, `in_progress`, or within seven days after `completed`.
+- Use the same completion deadline for opening a dispute and submitting a review. Start from the first `completedAt`. Legacy rentals fall back to `returnReport.approvedAt`, then `endDate`. Restoring a previously completed rental preserves its original deadline.
 - Do not allow a new dispute if the rental already has an active dispute in `pending`, `escalated`, or any Admin-needed state.
 - When a rental is `DISPUTED`, block user actions that can mutate the transaction, including:
   - pickup
@@ -93,7 +94,7 @@ Implement or preserve these Admin-facing APIs:
   - sign, if signing would advance the rental
   - payment actions, refund actions, payout actions, or escrow release actions unless explicitly performed by Admin resolution logic
 - Only the reporter may withdraw.
-- Only allow withdraw while the dispute is not resolved.
+- Allow withdrawal while the dispute is `pending` or `escalated`.
 - Only allow escalation after 48 hours from `createdAt` or after `mediationEndsAt`.
 - Admin may resolve both pending and escalated disputes, but Admin UI should prioritize escalated disputes.
 - Always store enough previous state to avoid losing where the rental and item came from.
@@ -219,7 +220,7 @@ When `rental.status === DISPUTED`:
 - Show a `Dang tranh chap` badge.
 - Disable action buttons that can advance, cancel, sign, complete, confirm, reject, pickup, pay, refund, or release payout outside the dispute flow.
 - Show dispute reason and evidence when available.
-- Show `Rut khieu nai` to the reporter. Note: current backend (`disputes.controller.js`) and frontend (`RentalDetailPage.jsx`) allow the reporter to withdraw while `dispute.status` is `pending` OR `escalated` (pending Founder decision on whether withdraw should be blocked after escalation).
+- Show `Rut khieu nai` when `actions.canWithdrawDispute` is true. Use `actions.canCreateDispute` to show the report action even if the current user has already reviewed the rental or an earlier dispute is closed.
 - Show `Yeu cau Admin can thiep` only after `mediationEndsAt`.
 - Show clear pending/escalated/resolved state labels without implying Admin has ruled before resolution.
 

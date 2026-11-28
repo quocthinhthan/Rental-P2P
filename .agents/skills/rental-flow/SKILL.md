@@ -17,6 +17,9 @@ Use this skill when changing frontend rental lifecycle UI. The current rental de
 Handover (step 4) is now **two-phase**:
 - Recorder calls `pickup` / `complete` → saves report, status unchanged.
 - Counterpart reviews in `HandoverModal` and calls `approve-pickup` / `approve-return` → status advances.
+- Only rental participants can record or approve. The first record for each report is saved atomically, and only the counterpart can approve.
+- Recording and optional approval replacements require at least one valid Cloudinary image. An empty text value clears an optional report field.
+- Recording pickup requires valid eKYC. Recording a return and both approvals are available to eligible rental participants after eKYC expires.
 
 While the first party has recorded but the counterpart has not yet approved, treat the handover step as *active* (not yet completed).
 
@@ -106,24 +109,11 @@ When `dispute.status === 'resolved'`, do not map timeline only from the final `r
 
 ## Withdrawn Dispute / Restored Rental Rule
 
-When `dispute.status === 'withdrawn'`, or when `dispute.status === 'resolved'` with `winner === 'none'`, the frontend must infer the restored timeline from actual rental evidence, not only from `dispute.previousRentalStatus`.
+When `dispute.status === 'withdrawn'`, or when `dispute.status === 'resolved'` with `winner === 'none'`, use the current backend `rental.status`. If the response lacks that field, fall back to `dispute.previousRentalStatus`, then to `in_progress`.
 
-Priority order:
-
-1. If `rental.status === 'completed'`, `dispute.previousRentalStatus === 'completed'`, or `returnImages` has any image:
-   - completed: all 6 steps
-2. If `rental.status === 'in_progress'`, `dispute.previousRentalStatus === 'in_progress'`, or `pickupImages` has any image:
-   - completed: Thanh toán, Chờ xác nhận, Ký hợp đồng, Giao/Nhận đồ
-   - active: Đang thuê
-   - pending: Hoàn tất
-3. If `rental.status === 'confirmed'` or `dispute.previousRentalStatus === 'confirmed'`:
-   - if the contract is fully signed, active: Giao/Nhận đồ
-   - otherwise active: Ký hợp đồng
-4. If `endDate` has passed and `pickupImages` exists, do not auto-complete the timeline unless backend status is already `completed`.
-   - keep timeline at Đang thuê
-   - UI may show helper text: `Đơn đã qua ngày thuê, vui lòng hoàn tất/trả đồ.`
-
-Important: never use `previousRentalStatus === 'confirmed'` alone to force the timeline back to Ký hợp đồng. Check pickup proof, return proof, current rental status, contract signature state, and rental dates first.
+- `confirmed`: Keep Giao/Nhận đồ active once both signatures or a recorded pickup are present.
+- `in_progress`: Keep Đang thuê active while the other party reviews the return report. After `endDate`, the UI may prompt an in-progress rental with no return proof to record the return.
+- `completed`: Mark all six steps complete. Pickup and return photos represent submitted evidence. They do not advance the lifecycle.
 
 ## Implementation Notes
 
@@ -131,8 +121,8 @@ Important: never use `previousRentalStatus === 'confirmed'` alone to force the t
 - Active dispute maps to a frontend timeline state such as `disputed_in_progress`.
 - Resolved renter-win maps to a frontend timeline state such as `dispute_resolved_at_in_progress`.
 - Avoid simple `rental.status -> step index` mapping when a dispute object is present.
-- **Dispute eligibility discrepancy (needs Founder confirmation before changing):** `frontend/src/pages/RentalDetailPage.jsx` (`canCreateDispute`) currently shows the dispute button for `confirmed` and `in_progress` when no dispute record exists and the current user has not reviewed, whereas `backend/controllers/disputes.controller.js` (`canCreateDisputeForRental`) accepts `confirmed`, `in_progress`, and `completed` (within 7 days of `updatedAt`, falling back to `endDate`). Do not change this policy silently without Founder confirmation.
-- **Current handover/restore timeline caveat in `RentalDetailPage.jsx`:** `getConfirmedTimelineStatus` treats any non-empty `pickupImages` (`hasPickupProof(rental)`) as `in_progress` even before `approve-pickup` advances backend `rental.status`, which advances the visual timeline to step 5 while waiting for counterpart pickup approval. Similarly, `getTimelineStatusAfterDisputeRestore` maps `hasReturnProof(rental)` directly to `completed`. Verify against backend status before changing timeline logic.
+- Show the dispute and review actions using `actions` from `GET /api/views/my-rentals`. Either party can open a dispute in `confirmed`, `in_progress`, or within seven days of completion, provided there is no active dispute. A submitted review or a closed dispute does not block opening a dispute.
+- Only the reporter can withdraw a `pending` or `escalated` dispute. For completed rentals, use the API's completion deadline to hide expired actions.
 - Keep the 6 existing step labels unchanged unless the product owner explicitly asks to rename the timeline.
 - Preserve icon visibility. This app loads FontAwesome 5, so timeline icons should use FA5 class names such as `fas fa-clock`, not old FA4 names such as `fa-clock-o`.
 - After a terminal rental state (`cancelled`, `rejected`, `completed`, resolved dispute), renter sees a **"Thuê lại sản phẩm"** button linking to the item detail page.

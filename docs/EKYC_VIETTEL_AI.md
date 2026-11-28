@@ -16,8 +16,16 @@
 4. Người dùng kiểm tra thông tin OCR chỉ đọc và xác nhận → Backend sinh thứ tự thử thách gồm **`Portrait` đầu tiên + 4 tư thế `Left`, `Right`, `Top`, `Bottom` trộn ngẫu nhiên bằng CSPRNG**.
 5. Camera trước trên Mobile giữ kết nối xuyên suốt để thực hiện lần lượt `1/5` → `5/5` tư thế qua `POST /ekyc/face_liveness` (`5` request).
 6. Chỉ khi **cả 5/5 tư thế đều đạt**, Backend mới lưu `IdentityProfile`, cập nhật `User.ekycStatus = 'verified'`, tính lại `TrustScore` (`+20`) và phát sự kiện Socket.IO `ekyc_session_updated` về Desktop.
+7. Trang **Tài khoản** đồng bộ hồ sơ qua `GET /api/auth/me` khi nhận kết quả hoặc phát hiện có trạng thái xác minh mới. Nếu gặp lỗi tạm thời, giao diện thử lại tự động.
 
 **Tổng số lượt gọi Viettel AI lý tưởng cho 1 phiên thành công:** `1` (Spoof Check) + `1` (OCR) + `5` (Face Liveness) = **7 request** (0 request Face Matching).
+
+### Ràng buộc CCCD với tài khoản
+
+- `IdentityProfile.idNumberHmac` có unique index trên cả hồ sơ đang hoạt động và đã bị thu hồi. `User.idCardNumber` dùng để hiển thị số đã che trong luồng hiện tại. Tài khoản từ luồng cũ còn lưu số đầy đủ vẫn được so khớp khi kiểm tra trùng.
+- Ban tài khoản, giấy tờ hết hạn và yêu cầu xác minh lại từ Admin đều giữ liên kết CCCD. Chủ tài khoản có thể xác minh lại bằng cùng số. Backend kiểm tra liên kết ở bước OCR và trước khi lưu kết quả 5/5.
+- Nếu dữ liệu lịch sử đã có nhiều `IdentityProfile` cùng HMAC, MongoDB sẽ từ chối tạo index. API tạo phiên hoặc lưu xác minh khi đó trả `503 IDENTITY_INDEX_UNAVAILABLE` cho đến khi tạo được index. Cần đối chiếu các hồ sơ xung đột trước khi triển khai trên cơ sở dữ liệu đã có dữ liệu. Bản cập nhật giữ nguyên các hồ sơ hiện có.
+- Ràng buộc này áp dụng cho số CCCD do OCR đọc được. Phạm vi kiểm tra thực thể sống và quyền sở hữu CCCD theo mô tả ở đầu tài liệu.
 
 ---
 

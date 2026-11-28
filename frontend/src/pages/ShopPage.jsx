@@ -6,6 +6,20 @@ import apiService from '../services/api';
 // Import file CSS riêng
 import '../styles/ShopPage.css';
 
+const getVisiblePages = (currentPage, totalPages) => {
+  const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const nearbyPages = Array.from({ length: Math.min(5, totalPages) }, (_, index) => start + index);
+  return [...new Set([1, ...nearbyPages, totalPages])];
+};
+
+const getNearbyLocation = (params) => {
+  const lat = params.get('lat');
+  const lng = params.get('lng');
+  if (!lat || !lng || !params.get('radius')) return null;
+  const location = { lat: Number(lat), lng: Number(lng) };
+  return Number.isFinite(location.lat) && Number.isFinite(location.lng) ? location : null;
+};
+
 function ShopPage() {
   const [searchParams] = useSearchParams();
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '');
@@ -15,12 +29,7 @@ function ShopPage() {
   const [endDate, setEndDate] = useState(searchParams.get('endDate') || '');
   const [ownerId, setOwnerId] = useState(searchParams.get('ownerId') || '');
   const [categories, setCategories] = useState([]);
-  const [nearbyLocation, setNearbyLocation] = useState(() => {
-    const lat = Number(searchParams.get('lat'));
-    const lng = Number(searchParams.get('lng'));
-    const hasRadius = Boolean(searchParams.get('radius'));
-    return Number.isFinite(lat) && Number.isFinite(lng) && hasRadius ? { lat, lng } : null;
-  });
+  const [nearbyLocation, setNearbyLocation] = useState(() => getNearbyLocation(searchParams));
   const [radius, setRadius] = useState(searchParams.get('radius') || '');
   const [isFeaturedOnly, setIsFeaturedOnly] = useState(false);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
@@ -42,12 +51,16 @@ function ShopPage() {
     []
   );
 
-  // States for client-side pagination and item fetching
   const [items, setItems] = useState([]);
+  const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const totalPages = pagination?.totalPages ?? 0;
+  const visiblePages = totalPages > 1 ? getVisiblePages(currentPage, totalPages) : [];
+  const nearbyLat = nearbyLocation?.lat;
+  const nearbyLng = nearbyLocation?.lng;
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -68,11 +81,9 @@ function ShopPage() {
     setStartDate(searchParams.get('startDate') || '');
     setEndDate(searchParams.get('endDate') || '');
     setOwnerId(searchParams.get('ownerId') || '');
-    const lat = Number(searchParams.get('lat'));
-    const lng = Number(searchParams.get('lng'));
-    const radiusParam = searchParams.get('radius') || '';
-    setNearbyLocation(Number.isFinite(lat) && Number.isFinite(lng) && radiusParam ? { lat, lng } : null);
-    setRadius(radiusParam);
+    setNearbyLocation(getNearbyLocation(searchParams));
+    setRadius(searchParams.get('radius') || '');
+    setCurrentPage(1);
   }, [searchParams]);
 
   const filters = useMemo(() => {
@@ -89,14 +100,14 @@ function ShopPage() {
       nextFilters.isFeatured = true;
     }
 
-    if (nearbyLocation) {
-      nextFilters.lat = nearbyLocation.lat;
-      nextFilters.lng = nearbyLocation.lng;
+    if (nearbyLat !== undefined && nearbyLng !== undefined) {
+      nextFilters.lat = nearbyLat;
+      nextFilters.lng = nearbyLng;
       if (radius) nextFilters.radius = radius;
     }
 
     return nextFilters;
-  }, [searchInput, category, address, startDate, endDate, ownerId, nearbyLocation, radius, isFeaturedOnly]);
+  }, [searchInput, category, address, startDate, endDate, ownerId, nearbyLat, nearbyLng, radius, isFeaturedOnly]);
 
   const locationPickerFilters = useMemo(() => ({
     search: searchInput.trim(),
@@ -107,23 +118,42 @@ function ShopPage() {
     ownerId,
   }), [searchInput, category, address, startDate, endDate, ownerId]);
 
-  // Effect to fetch items on filters change
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
     const fetchItems = async () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.getItems({ ...filters, limit: 1000 });
-        setItems(response.data || []);
-        setCurrentPage(1);
+        const { data } = await apiService.getItems(
+          { ...filters, page: currentPage, limit: pageSize, includePagination: true },
+          { signal, skipGlobalLoading: true }
+        );
+        if (signal.aborted) return;
+
+        setPagination(data.pagination);
+        const lastPage = Math.max(1, data.pagination.totalPages);
+        if (currentPage > lastPage) {
+          setCurrentPage(lastPage);
+          return;
+        }
+        setItems(data.items);
       } catch (err) {
+        if (signal.aborted) return;
         console.error('Lỗi khi tải sản phẩm:', err);
         setError('Không thể tải danh sách sản phẩm. Vui lòng thử lại sau.');
       }
       setLoading(false);
     };
     fetchItems();
-  }, [filters]);
+    return () => controller.abort();
+  }, [filters, currentPage, pageSize]);
+
+  const changeFilter = (setFilter, value) => {
+    setFilter(value);
+    setCurrentPage(1);
+  };
 
   const handleReset = () => {
     setSearchInput('');
@@ -146,7 +176,7 @@ function ShopPage() {
         preferCurrentLocation: !nearbyLocation,
         itemFilters: locationPickerFilters,
         onConfirm: ({ location, radius: selectedRadius }) => {
-          setNearbyLocation(location);
+          changeFilter(setNearbyLocation, location);
           setRadius(selectedRadius);
         },
       },
@@ -154,7 +184,7 @@ function ShopPage() {
   };
 
   const handleClearNearby = () => {
-    setNearbyLocation(null);
+    changeFilter(setNearbyLocation, null);
   };
 
   const hasNearbyFilter = Boolean(nearbyLocation);
@@ -219,7 +249,7 @@ function ShopPage() {
                     className="form-control"
                     placeholder="Máy ảnh, lều trại, xe máy..."
                     value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
+                    onChange={(e) => changeFilter(setSearchInput, e.target.value)}
                   />
                 </div>
               </div>
@@ -231,7 +261,7 @@ function ShopPage() {
                   variant="filter"
                   icon="fas fa-th-large"
                   value={category}
-                  onChange={(val) => setCategory(val)}
+                  onChange={(value) => changeFilter(setCategory, value)}
                   options={categoryOptions}
                   placeholder="Tất cả danh mục"
                   ariaLabel="Chọn danh mục"
@@ -248,7 +278,7 @@ function ShopPage() {
                     className="form-control"
                     placeholder="Nhập quận, thành phố..."
                     value={address}
-                    onChange={(e) => setAddress(e.target.value)}
+                    onChange={(e) => changeFilter(setAddress, e.target.value)}
                   />
                 </div>
               </div>
@@ -263,7 +293,7 @@ function ShopPage() {
                         type="date"
                         className="form-control"
                         value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
+                        onChange={(e) => changeFilter(setStartDate, e.target.value)}
                         title="Từ ngày"
                       />
                     </div>
@@ -274,7 +304,7 @@ function ShopPage() {
                         type="date"
                         className="form-control"
                         value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
+                        onChange={(e) => changeFilter(setEndDate, e.target.value)}
                         title="Đến ngày"
                       />
                     </div>
@@ -294,7 +324,7 @@ function ShopPage() {
                     role="switch"
                     id="featuredSwitch"
                     checked={isFeaturedOnly}
-                    onChange={(e) => setIsFeaturedOnly(e.target.checked)}
+                    onChange={(e) => changeFilter(setIsFeaturedOnly, e.target.checked)}
                   />
                 </div>
               </div>
@@ -388,68 +418,77 @@ function ShopPage() {
                 <p className="fs-5 text-muted mb-0">Không tìm thấy sản phẩm nào phù hợp.</p>
               </div>
             ) : (
-              <>
-                <div className="row g-4">
-                  {items.slice((currentPage - 1) * pageSize, currentPage * pageSize).map(item => (
-                    <ItemCard key={item._id} item={item} />
-                  ))}
+              <div className="row g-4">
+                {items.map(item => <ItemCard key={item._id} item={item} />)}
+              </div>
+            )}
+
+            {pagination && (
+              <div className="pagination-container d-flex align-items-center justify-content-between flex-wrap gap-3 mt-5">
+                <div className="d-flex align-items-center gap-3 flex-wrap text-muted small">
+                  <span>Tổng số <strong>{pagination.total}</strong> sản phẩm</span>
+                  <CustomSelect
+                    variant="compact"
+                    value={pageSize}
+                    onChange={(value) => {
+                      if (value !== pageSize) changeFilter(setPageSize, value);
+                    }}
+                    options={pageSizeOptions}
+                    className="shop-page-size-wrapper"
+                    ariaLabel="Số sản phẩm mỗi trang"
+                  />
                 </div>
 
-                {/* Phân trang */}
-                <div className="pagination-container d-flex align-items-center justify-content-between flex-wrap gap-3 mt-5">
-                  <div className="d-flex align-items-center gap-3 flex-wrap text-muted small">
-                    <span>Tổng số <strong>{items.length}</strong> sản phẩm</span>
-                    <CustomSelect
-                      variant="compact"
-                      value={pageSize}
-                      onChange={(val) => {
-                        setPageSize(Number(val));
-                        setCurrentPage(1);
-                      }}
-                      options={pageSizeOptions}
-                      className="shop-page-size-wrapper"
-                      ariaLabel="Số sản phẩm mỗi trang"
-                    />
-                  </div>
-
-                  {/* Điều hướng trang */}
-                  {Math.ceil(items.length / pageSize) > 1 && (
-                    <nav aria-label="Page navigation">
-                      <ul className="pagination shop-pagination pagination-sm m-0 gap-1">
-                        <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                          <button
-                            className="page-link rounded-circle d-flex align-items-center justify-content-center shadow-sm"
-                            style={{ width: '32px', height: '32px' }}
-                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          >
-                            <i className="fas fa-chevron-left" style={{ fontSize: '0.75rem' }}></i>
-                          </button>
-                        </li>
-                        {Array.from({ length: Math.ceil(items.length / pageSize) }, (_, i) => i + 1).map(page => (
-                          <li key={page} className={`page-item ${currentPage === page ? 'active' : ''}`}>
+                {visiblePages.length > 0 && (
+                  <nav aria-label="Phân trang kết quả">
+                    <ul className="pagination shop-pagination pagination-sm m-0 gap-1">
+                      <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                        <button
+                          type="button"
+                          className="page-link rounded-circle d-flex align-items-center justify-content-center shadow-sm"
+                          style={{ width: '32px', height: '32px' }}
+                          aria-label="Trang trước"
+                          disabled={currentPage === 1}
+                          onClick={() => setCurrentPage(currentPage - 1)}
+                        >
+                          <i className="fas fa-chevron-left" aria-hidden="true" style={{ fontSize: '0.75rem' }}></i>
+                        </button>
+                      </li>
+                      {visiblePages.map((page, index) => (
+                        <React.Fragment key={page}>
+                          {index > 0 && page - visiblePages[index - 1] > 1 && (
+                            <li className="page-item disabled" aria-hidden="true"><span className="page-link">…</span></li>
+                          )}
+                          <li className={`page-item ${currentPage === page ? 'active' : ''}`}>
                             <button
+                              type="button"
                               className="page-link rounded-circle d-flex align-items-center justify-content-center shadow-sm"
                               style={{ width: '32px', height: '32px', fontWeight: 'bold' }}
+                              aria-label={`Trang ${page}`}
+                              aria-current={currentPage === page ? 'page' : undefined}
                               onClick={() => setCurrentPage(page)}
                             >
                               {page}
                             </button>
                           </li>
-                        ))}
-                        <li className={`page-item ${currentPage === Math.ceil(items.length / pageSize) ? 'disabled' : ''}`}>
-                          <button
-                            className="page-link rounded-circle d-flex align-items-center justify-content-center shadow-sm"
-                            style={{ width: '32px', height: '32px' }}
-                            onClick={() => setCurrentPage(prev => Math.min(Math.ceil(items.length / pageSize), prev + 1))}
-                          >
-                            <i className="fas fa-chevron-right" style={{ fontSize: '0.75rem' }}></i>
-                          </button>
-                        </li>
-                      </ul>
-                    </nav>
-                  )}
-                </div>
-              </>
+                        </React.Fragment>
+                      ))}
+                      <li className={`page-item ${currentPage >= totalPages ? 'disabled' : ''}`}>
+                        <button
+                          type="button"
+                          className="page-link rounded-circle d-flex align-items-center justify-content-center shadow-sm"
+                          style={{ width: '32px', height: '32px' }}
+                          aria-label="Trang sau"
+                          disabled={currentPage >= totalPages}
+                          onClick={() => setCurrentPage(currentPage + 1)}
+                        >
+                          <i className="fas fa-chevron-right" aria-hidden="true" style={{ fontSize: '0.75rem' }}></i>
+                        </button>
+                      </li>
+                    </ul>
+                  </nav>
+                )}
+              </div>
             )}
           </div>
 

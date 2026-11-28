@@ -42,13 +42,13 @@ router.patch('/:id/reject', protect, checkRentalOwner, rejectRental);
 // PATCH /api/rentals/:id/cancel - (Renter/Owner/Admin) Cancel before handover
 router.patch('/:id/cancel', protect, cancelRental);
 
-// PATCH /api/rentals/:id/complete - (Owner hoặc Renter) Hoàn thành
+// Participants can record return and approve handovers even if eKYC expires mid-rental.
 router.patch('/:id/complete', protect, completeRental);
 
 // [CẢ 2 BÊN] Ký hợp đồng điện tử
 router.post('/:id/sign-contract', protect, checkVerified, signContract);
 
-// [CẢ 2 BÊN] Chụp ảnh nhận đồ (Chuyển sang in_progress)
+// Ghi nhận biên bản nhận đồ. Trạng thái chỉ đổi khi bên còn lại duyệt.
 router.patch('/:id/pickup', protect, checkVerified, pickupItem);
 
 // [CẢ 2 BÊN] Xác nhận bàn giao đồ

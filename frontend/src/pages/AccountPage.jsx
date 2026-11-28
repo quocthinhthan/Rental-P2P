@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import apiService from '../services/api';
@@ -19,6 +19,9 @@ function AccountPage() {
   const [saving, setSaving] = useState(false);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState('');
+  const avatarInputRef = useRef(null);
+  const uploadedAvatarUrl = useRef('');
+  const displayedAvatar = avatarPreview || user?.avatarUrl;
 
   const isVerified = user?.ekycStatus === 'verified'
     && (!user?.ekycExpiresAt || new Date(user.ekycExpiresAt) > new Date());
@@ -29,25 +32,27 @@ function AccountPage() {
     setValue('email', user.email || '');
     setValue('phoneNumber', user.phoneNumber || '');
     setValue('address', user.address || '');
-    setValue('avatarUrl', user.avatarUrl || '');
     setValue('bankAccount.bankName', user.bankAccount?.bankName || '');
     setValue('bankAccount.accountNumber', user.bankAccount?.accountNumber || '');
     setValue('bankAccount.accountHolder', user.bankAccount?.accountHolder || '');
   }, [user, setValue]);
 
-  const uploadImageFile = async (file) => {
-    const response = await apiService.uploadImage(file);
-    return {
-      imageUrl: response.data?.imageUrl,
-      publicId: response.data?.publicId
-    };
-  };
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview('');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(avatarFile);
+    setAvatarPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [avatarFile]);
 
   const handleAvatarChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    uploadedAvatarUrl.current = '';
     setAvatarFile(file);
-    setAvatarPreview(URL.createObjectURL(file));
   };
 
   const handleVerifiedSuccess = useCallback((freshUser) => {
@@ -61,17 +66,10 @@ function AccountPage() {
     setSaving(true);
 
     try {
-      let avatarUrl = data.avatarUrl;
-      if (avatarFile) {
-        const uploadedAvatar = await uploadImageFile(avatarFile);
-        if (uploadedAvatar.imageUrl) avatarUrl = uploadedAvatar.imageUrl;
-      }
-
       const payload = {
         fullName: data.fullName,
         phoneNumber: data.phoneNumber,
         address: data.address,
-        avatarUrl,
         bankAccount: {
           bankName: data.bankAccount?.bankName || '',
           accountNumber: data.bankAccount?.accountNumber || '',
@@ -79,8 +77,24 @@ function AccountPage() {
         }
       };
 
+      if (avatarFile) {
+        // Reuse the upload if only the subsequent profile update needs retrying.
+        if (!uploadedAvatarUrl.current) {
+          const response = await apiService.uploadImage(avatarFile);
+          if (!response.data?.imageUrl) {
+            Swal.fire('Thất bại', 'Không thể tải ảnh đại diện lên. Vui lòng thử lại.', 'error');
+            return;
+          }
+          uploadedAvatarUrl.current = response.data.imageUrl;
+        }
+        payload.avatarUrl = uploadedAvatarUrl.current;
+      }
+
       const response = await apiService.updateProfile(payload);
       updateUser(response.data);
+      setAvatarFile(null);
+      uploadedAvatarUrl.current = '';
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
       Swal.fire('Thành công!', 'Cập nhật thông tin thành công!', 'success');
     } catch (error) {
       Swal.fire('Thất bại', error.response?.data?.message || 'Không thể cập nhật thông tin.', 'error');
@@ -111,9 +125,9 @@ function AccountPage() {
             <div className="col-lg-4">
               <div className="acc-profile-card">
                 <div className="acc-avatar-wrap">
-                  {(avatarPreview || user?.avatarUrl) ? (
+                  {displayedAvatar ? (
                     <img
-                      src={avatarPreview || user?.avatarUrl}
+                      src={displayedAvatar}
                       alt={user?.fullName}
                       className="acc-avatar"
                     />
@@ -282,37 +296,36 @@ function AccountPage() {
 
                   <div className="row g-3">
                     <div className="col-md-6">
-                      <label className="form-label">Tải ảnh lên</label>
+                      <label className="form-label" htmlFor="account-avatar-file">Chọn ảnh từ máy</label>
                       <input
+                        id="account-avatar-file"
+                        name="avatarFile"
                         type="file"
                         accept="image/*"
                         className="form-control"
+                        aria-describedby="account-avatar-help"
+                        ref={avatarInputRef}
+                        disabled={saving}
                         onChange={handleAvatarChange}
                       />
-                      {(avatarPreview || user?.avatarUrl) && (
+                      <div id="account-avatar-help" className="form-text">
+                        Ảnh được tải lên khi bạn bấm Lưu thay đổi.
+                      </div>
+                      {displayedAvatar && (
                         <img
-                          src={avatarPreview || user?.avatarUrl}
-                          alt="avatar-preview"
+                          src={displayedAvatar}
+                          alt={avatarPreview ? 'Ảnh đại diện xem trước' : 'Ảnh đại diện hiện tại'}
                           className="acc-avatar-preview"
                         />
                       )}
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">Hoặc dán URL ảnh</label>
-                      <input
-                        type="url"
-                        className="form-control"
-                        placeholder="https://..."
-                        {...register('avatarUrl')}
-                      />
                     </div>
                   </div>
 
                   {/* ── Submit ── */}
                   <div className="mt-4 d-flex justify-content-end gap-3 align-items-center">
                     {saving && (
-                      <span className="text-muted small">
-                        <span className="spinner-border spinner-border-sm me-1" />Đang lưu...
+                      <span className="text-muted small" role="status">
+                        <span className="spinner-border spinner-border-sm me-1" aria-hidden="true" />Đang lưu...
                       </span>
                     )}
                     <button type="submit" className="acc-submit-btn" disabled={saving}>

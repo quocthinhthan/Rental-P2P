@@ -4,6 +4,8 @@ const Rental = require('../models/Rental.model');
 const User = require('../models/User.model');
 const Item = require('../models/Item.model');
 const mongoose = require('mongoose');
+const { RentalStatus } = require('../enums/rental.enum');
+const { isWithinCompletionWindow } = require('../services/rentalActions.service');
 const {
   recalculateUserTrustScore,
   getTrustLevelFromScore
@@ -19,12 +21,11 @@ exports.createReview = async (req, res) => {
     const rental = await Rental.findById(rentalId);
     if (!rental) return res.status(404).json({ message: 'Rental not found' });
 
-    if (rental.status !== 'completed') {
+    if (rental.status !== RentalStatus.COMPLETED) {
       return res.status(400).json({ message: 'Chỉ được đánh giá khi đơn đã hoàn thành' });
     }
 
-    const diffDays = Math.ceil(Math.abs(new Date() - new Date(rental.updatedAt)) / (1000 * 60 * 60 * 24));
-    if (diffDays > 7) {
+    if (!isWithinCompletionWindow(rental)) {
       return res.status(400).json({ message: 'Đã hết hạn đánh giá (chỉ cho phép trong 7 ngày)' });
     }
 

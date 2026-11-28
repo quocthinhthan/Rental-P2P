@@ -26,6 +26,7 @@ const {
   computeIdNumberHmac,
   maskIdNumber,
   encryptSensitiveText,
+  decryptSensitiveText,
   createEkycMobileSessionToken
 } = require('../utils/ekycCrypto');
 const { validateEkycImageBuffer } = require('../utils/imageValidator');
@@ -45,6 +46,16 @@ class EkycDomainError extends Error {
     this.details = details;
   }
 }
+
+const DUPLICATE_IDENTITY = {
+  code: 'DUPLICATE_IDENTITY_DOCUMENT',
+  message: 'Số Căn cước công dân này đã được đăng ký xác minh cho một tài khoản khác trên hệ thống.'
+};
+const DIFFERENT_ACCOUNT_IDENTITY = {
+  code: 'IDENTITY_DOCUMENT_MISMATCH',
+  message: 'Vui lòng dùng số CCCD đã đăng ký với tài khoản này để xác minh lại.'
+};
+const IDENTITY_INDEX_RETRY_MS = 60_000;
 
 const PERMANENT_EXPIRY_PATTERNS = [
   'không thời hạn',
@@ -315,25 +326,25 @@ const getDesktopUiPhase = (session) => {
       return { code: 'CAPTURING_DOCUMENTS', label: 'Đang chụp giấy tờ tùy thân' };
     case VerificationSessionStatus.DOCUMENT_PROCESSING:
       if (session.processingStage === ProcessingStage.OCR) {
-        return { code: 'EXTRACTING_OCR', label: 'Đang bóc tách thông tin' };
+        return { code: 'EXTRACTING_OCR', label: 'Đang xác minh thông tin' };
       }
-      return { code: 'CHECKING_DOCUMENTS', label: 'Đang kiểm tra giấy tờ' };
+      return { code: 'CHECKING_DOCUMENTS', label: 'Đang xác minh giấy tờ' };
     case VerificationSessionStatus.DOCUMENT_VERIFIED:
-      return { code: 'EXTRACTING_OCR', label: 'Đang chờ người dùng xác nhận thông tin CCCD' };
+      return { code: 'EXTRACTING_OCR', label: 'Đang chờ xác nhận thông tin CCCD' };
     case VerificationSessionStatus.DOCUMENT_CONFIRMED:
     case VerificationSessionStatus.LIVENESS_IN_PROGRESS:
       return {
         code: 'VERIFYING_LIVENESS',
-        label: `Đang kiểm tra thực thể sống (${passedPoses}/${totalPoses} tư thế)`
+        label: `Đang xác thực khuôn mặt (${passedPoses}/${totalPoses})`
       };
     case VerificationSessionStatus.LIVENESS_PROCESSING:
     case VerificationSessionStatus.FACE_PROCESSING:
       if (session.processingStage === ProcessingStage.FINALIZING) {
-        return { code: 'FINALIZING_RESULT', label: 'Đang xử lý kết quả' };
+        return { code: 'FINALIZING_RESULT', label: 'Đang hoàn tất xác minh' };
       }
       return {
         code: 'VERIFYING_LIVENESS',
-        label: `Đang kiểm tra thực thể sống (${Math.min(totalPoses, passedPoses + 1)}/${totalPoses})`
+        label: `Đang xác thực khuôn mặt (${Math.min(totalPoses, passedPoses + 1)}/${totalPoses})`
       };
     case VerificationSessionStatus.DOCUMENT_RETRY_REQUIRED:
     case VerificationSessionStatus.LIVENESS_RETRY_REQUIRED:
@@ -499,6 +510,41 @@ const createEkycService = ({
   challengeGenerator = generateLivenessChallengeSequence,
   nowGetter = () => new Date()
 } = {}) => {
+  let identityIndexesReady;
+  let identityIndexRetryAt = Infinity;
+  const ensureIdentityIndexes = () => {
+    if (!identityIndexesReady || Date.now() >= identityIndexRetryAt) {
+      identityIndexRetryAt = Infinity;
+      identityIndexesReady = models.IdentityProfile.createIndexes().catch((error) => {
+        identityIndexRetryAt = Date.now() + IDENTITY_INDEX_RETRY_MS;
+        console.error('[eKYC][IdentityIndexUnavailable]', { code: error?.code || 'UNEXPECTED_ERROR' });
+        throw new EkycDomainError('Hệ thống xác minh danh tính đang tạm thời gián đoạn. Vui lòng thử lại sau.', {
+          statusCode: 503,
+          code: 'IDENTITY_INDEX_UNAVAILABLE'
+        });
+      });
+    }
+    return identityIndexesReady;
+  };
+
+  const findIdentityConflict = async (userId, idNumberHmac, idNumber) => {
+    const [otherProfile, ownDifferentProfile, legacyOwner, currentUser] = await Promise.all([
+      models.IdentityProfile.findOne({ idNumberHmac, userId: { $ne: userId } }).select('_id'),
+      models.IdentityProfile.findOne({ userId, idNumberHmac: { $ne: idNumberHmac } }).select('_id'),
+      // Pre-IdentityProfile accounts can still have a full number on User.
+      models.User.findOne({ _id: { $ne: userId }, idCardNumber: idNumber }).select('_id'),
+      models.User.findById(userId).select('idCardNumber')
+    ]);
+
+    if (otherProfile || legacyOwner) return DUPLICATE_IDENTITY;
+
+    const currentNumber = cleanOcrText(currentUser?.idCardNumber).replace(/\s+/g, '');
+    if (ownDifferentProfile || (/^\d{12}$/.test(currentNumber) && currentNumber !== idNumber)) {
+      return DIFFERENT_ACCOUNT_IDENTITY;
+    }
+    return null;
+  };
+
   const deleteSessionTempAssets = async (sessionId) => {
     if (!sessionId || !models.EkycTempAsset) return;
     await models.EkycTempAsset.deleteMany({ sessionId: String(sessionId) });
@@ -640,6 +686,8 @@ const createEkycService = ({
         code: 'ALREADY_VERIFIED'
       });
     }
+
+    await ensureIdentityIndexes();
 
     const existingSessions = await models.VerificationSession.find({
       userId: user._id,
@@ -1270,16 +1318,11 @@ const createEkycService = ({
     const normalized = ocrValidation.normalized;
     const idNumberHmac = computeIdNumberHmac(normalized.idNumber);
 
-    const duplicateProfile = await models.IdentityProfile.findOne({
-      idNumberHmac,
-      isActive: true,
-      userId: { $ne: lockedSession.userId }
-    }).select('_id userId');
-
-    if (duplicateProfile) {
+    const identityConflict = await findIdentityConflict(lockedSession.userId, idNumberHmac, normalized.idNumber);
+    if (identityConflict) {
       return handleDocumentStepFailure({
-        errorCode: 'DUPLICATE_IDENTITY_DOCUMENT',
-        message: 'Số Căn cước công dân này đã được đăng ký xác minh cho một tài khoản khác trên hệ thống.',
+        errorCode: identityConflict.code,
+        message: identityConflict.message,
         isTechnicalError: false,
         clientHttpStatus: 409,
         traces: [spoofTrace, ocrTrace],
@@ -1487,7 +1530,7 @@ const createEkycService = ({
       || active.livenessChallenges.length !== ALL_LIVENESS_POSES.length
     ) {
       throw new EkycDomainError(
-        'Không thể kiểm tra thực thể sống khi chưa hoàn tất kiểm tra và xác nhận thông tin CCCD.',
+        'Không thể xác thực khuôn mặt khi chưa hoàn tất kiểm tra và xác nhận thông tin CCCD.',
         { statusCode: 409, code: 'STEP_PREREQUISITE_NOT_MET' }
       );
     }
@@ -1514,7 +1557,7 @@ const createEkycService = ({
             usedLivenessImageHashes: [],
             livenessResults: createEmptyLivenessResults(),
             failureCode: 'LIVENESS_CONTINUITY_LOST',
-            failureReason: 'Quá trình xác thực khuôn mặt bị gián đoạn quá lâu. Hệ thống đã tạo mới chuỗi 5 tư thế (kết quả CCCD trước đó vẫn được giữ nguyên).'
+            failureReason: 'Quá trình xác thực khuôn mặt bị gián đoạn quá lâu. Vui lòng thực hiện lại từ đầu bước xác thực khuôn mặt (kết quả CCCD trước đó vẫn được giữ nguyên).'
           }
         },
         { new: true }
@@ -1538,7 +1581,7 @@ const createEkycService = ({
     const expectedPose = active.livenessChallenges[active.currentPoseIndex];
     if (cleanPose !== expectedPose) {
       throw new EkycDomainError(
-        `Thứ tự tư thế không khớp. Tư thế cần thực hiện hiện tại là "${POSE_LABELS_VI[expectedPose] || expectedPose}" (${expectedPose}).`,
+        `Thứ tự bước xác thực không khớp. Vui lòng thực hiện tư thế "${POSE_LABELS_VI[expectedPose] || expectedPose}".`,
         {
           statusCode: 409,
           code: 'INVALID_LIVENESS_POSE_ORDER',
@@ -1557,7 +1600,7 @@ const createEkycService = ({
             processingStage: ProcessingStage.IDLE,
             currentStep: EkycStep.RESULT,
             failureCode: 'MAX_LIVENESS_ATTEMPTS_EXCEEDED',
-            failureReason: 'Bạn đã vượt quá số lần thử lại thực thể sống cho phép. Vui lòng tạo phiên mới hoặc liên hệ bộ phận hỗ trợ.'
+            failureReason: 'Bạn đã vượt quá số lần thử lại xác thực khuôn mặt cho phép. Vui lòng tạo phiên mới hoặc liên hệ bộ phận hỗ trợ.'
           }
         },
         { new: true }
@@ -1588,6 +1631,10 @@ const createEkycService = ({
         'Ảnh chụp khuôn mặt bị trùng lặp với khung hình trước đó. Vui lòng chụp mới trực tiếp từ camera.',
         { statusCode: 400, code: 'DUPLICATE_LIVENESS_FRAME' }
       );
+    }
+
+    if (active.currentPoseIndex === ALL_LIVENESS_POSES.length - 1) {
+      await ensureIdentityIndexes();
     }
 
     // Acquire atomic processing lock on (sessionId + status + currentPoseIndex)
@@ -1782,6 +1829,35 @@ const createEkycService = ({
 
     const ocr = lockedSession.ocrSummary;
     const allTraces = [...(lockedSession.providerRequestIds || []), callTrace];
+    const failIdentityFinalization = async ({ code, message }) => {
+      const failedSession = await models.VerificationSession.findOneAndUpdate(
+        { sessionId: lockedSession.sessionId },
+        {
+          $set: {
+            status: VerificationSessionStatus.FAILED,
+            processingStage: ProcessingStage.IDLE,
+            currentStep: EkycStep.RESULT,
+            failureCode: code,
+            failureReason: message
+          },
+          $inc: { 'apiCallCounts.faceLiveness': 1 },
+          $push: { providerRequestIds: callTrace }
+        },
+        { new: true }
+      );
+      await deleteSessionTempAssets(lockedSession.sessionId);
+      broadcastDesktopUpdate(failedSession);
+      throw new EkycDomainError(message, {
+        statusCode: 409,
+        code,
+        details: { session: toMobileSessionPayload(failedSession) }
+      });
+    };
+
+    const idNumber = decryptSensitiveText(ocr.idNumberEncrypted, buildIdentityAad(lockedSession.userId));
+    const identityConflict = await findIdentityConflict(lockedSession.userId, ocr.idNumberHmac, idNumber);
+    if (identityConflict) return failIdentityFinalization(identityConflict);
+
     const findLastDocRequestId = (apiName) => {
       for (let i = allTraces.length - 1; i >= 0; i -= 1) {
         if (allTraces[i].api === apiName && allTraces[i].requestId) {
@@ -1805,7 +1881,7 @@ const createEkycService = ({
 
     try {
       await models.IdentityProfile.findOneAndUpdate(
-        { userId: lockedSession.userId },
+        { userId: lockedSession.userId, idNumberHmac: ocr.idNumberHmac },
         {
           $set: {
             userId: lockedSession.userId,
@@ -1852,28 +1928,8 @@ const createEkycService = ({
         { upsert: true, new: true, runValidators: true }
       );
     } catch (dbErr) {
-      if (dbErr && dbErr.code === 11000) {
-        const dupFail = await models.VerificationSession.findOneAndUpdate(
-          { sessionId: lockedSession.sessionId },
-          {
-            $set: {
-              status: VerificationSessionStatus.FAILED,
-              processingStage: ProcessingStage.IDLE,
-              currentStep: EkycStep.RESULT,
-              failureCode: 'DUPLICATE_IDENTITY_DOCUMENT',
-              failureReason: 'Số Căn cước công dân này vừa được đăng ký xác minh cho một tài khoản khác trên hệ thống.'
-            },
-            $inc: { 'apiCallCounts.faceLiveness': 1 },
-            $push: { providerRequestIds: callTrace }
-          },
-          { new: true }
-        );
-        broadcastDesktopUpdate(dupFail);
-        throw new EkycDomainError(dupFail.failureReason, {
-          statusCode: 409,
-          code: 'DUPLICATE_IDENTITY_DOCUMENT',
-          details: { session: toMobileSessionPayload(dupFail) }
-        });
+      if (dbErr?.code === 11000) {
+        return failIdentityFinalization(dbErr.keyPattern?.userId ? DIFFERENT_ACCOUNT_IDENTITY : DUPLICATE_IDENTITY);
       }
       throw dbErr;
     }

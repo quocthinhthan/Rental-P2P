@@ -117,7 +117,7 @@ Rentals can be cancelled before pickup proof is recorded, subject to role and st
 - Pickup is allowed only after the contract is fully signed.
 - Pickup requires `pickupImages`. Both pickup and complete optionally accept `condition`, `accessories`, `notes` (and `damages` for complete) to populate `pickupReport`/`returnReport`. Saving pickup/complete does NOT advance rental status — it waits for the counterpart to call `approve-pickup`/`approve-return`.
 - `approve-pickup` and `approve-return` can optionally accept edited report fields (`condition`, `accessories`, `notes`, `damages`, `pickupImages`/`returnImages`) to let the reviewer override the original entry before confirming. Advancing rental status only happens on these approve calls.
-- Completion requires `returnImages`.
+- Only rental participants can record or approve handover. Each report is recorded once. Report photos must use valid Cloudinary URLs. eKYC gates pickup recording. Return and approvals remain available after expiry.
 - Booking availability is date-range based (`backend/services/itemAvailability.service.js`). `Item.status = rented` is not a global lock; `createRentalRequest` blocks past `startDate`, and booking/VNPay/confirm/search/blocked-dates/calendar all check `blockedDates` and `ACTIVE_BOOKING_STATUSES` (`pending_confirmation`, `confirmed`, `in_progress`, `disputed`). `approvePickup`, `approveReturn`, `resolveDispute`, and `withdrawDispute` call `syncItemRuntimeStatus`.
 - Admin item governance: `Item.delistedByAdmin` blocks owner `PUT /api/items/:id` (`403`); `DELETE /api/items/:id` blocks hard delete if any active or historical rental exists (`400`); `resolveItemReport` (`no_action`/`warn_owner`) never auto-relists; `resolveDispute` uses atomic `409` status guards and logs `admin.dispute.resolve` to `AuditLog`.
 - Backend authorization rules decide which user can perform each action.
@@ -131,9 +131,10 @@ Rentals can be cancelled before pickup proof is recorded, subject to role and st
 - After a rental ends (`cancelled`, `rejected`, `completed`) the renter sees a **"Thuê lại sản phẩm"** button that navigates directly to the item detail page.
 
 
-## Current differences between checks
+## Dispute and Review Eligibility
 
-- **Dispute eligibility:** `backend/controllers/disputes.controller.js` accepts disputes from rental parties for `confirmed` (including before pickup), `in_progress`, and `completed` for up to seven days from `updatedAt`, with `endDate` as a fallback. `frontend/src/pages/RentalDetailPage.jsx` exposes the action only for `confirmed` and `in_progress`, and hides it when there is a dispute record or the current user has already reviewed the rental. Keep this distinction when describing or changing the flow.
+- Either rental party can open a dispute in `confirmed`, `in_progress`, or within seven days after completion, provided there is no active dispute. The reporter can withdraw a `pending` or `escalated` dispute.
+- The seven-day submission window for disputes and reviews uses `completedAt`, with `returnReport.approvedAt` then `endDate` for legacy records. The web rental detail uses the action eligibility returned by `GET /api/views/my-rentals`.
 
 ## Important APIs
 
@@ -182,6 +183,7 @@ When touching these APIs from the frontend:
 - TrustScore is a 0-100 reliability/risk score, not review stars. Keep review aggregates in `averageRating` and `totalReviews`, derive `trustLevel` from `trustScore`, and use `backend/services/trustScore.service.js` for recalculation.
 - Do not directly add/subtract `trustScore` in controllers. Persist source events such as public reviews, completed rentals, resolved disputes, item report actions, eKYC changes, or admin account status changes, then call `recalculateUserTrustScore`.
 - Public user summaries should avoid sensitive fields. `GET /api/users/:id/profile` returns safe profile, trust/rating fields, public reviews, and public owner items.
+- CCCD stays bound to its account through `IdentityProfile.idNumberHmac`, including after ban or eKYC revocation.
 
 ## Description Formatting & Security
 

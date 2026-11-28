@@ -10,17 +10,19 @@ const { DisputeStatus, PenaltyType, DisputeWinner } = require('../enums/dispute.
 const { ItemStatus } = require('../enums/item.enum');
 const trustScoreService = require('../services/trustScore.service');
 const { syncItemRuntimeStatus } = require('../services/itemAvailability.service');
+const {
+  ACTIVE_DISPUTE_STATUSES,
+  canCreateDisputeForRental,
+  getCompletionAt,
+  getRecordedCompletionAt,
+  isActiveDispute,
+  isDisputeReporter
+} = require('../services/rentalActions.service');
 
 const MEDIATION_WINDOW_HOURS = 48;
 const SUSPENSION_DAYS = 7;
-const COMPLETED_DISPUTE_WINDOW_DAYS = 7;
-const ACTIVE_DISPUTE_STATUSES = [DisputeStatus.PENDING, DisputeStatus.ESCALATED];
 const TRANSACTION_UNSUPPORTED_REGEX = /Transaction numbers are only allowed|replica set member|Transaction.*not supported/i;
 const CONFLICT_MESSAGE = 'Tranh chấp đã thay đổi trạng thái trước đó, vui lòng tải lại.';
-const BASE_DISPUTABLE_RENTAL_STATUSES = [
-  RentalStatus.CONFIRMED,
-  RentalStatus.IN_PROGRESS
-];
 
 class DisputeConflictError extends Error {
   constructor(message = CONFLICT_MESSAGE) {
@@ -69,23 +71,6 @@ const writeDisputeAuditLog = async ({ req, dispute, before, after, reason, metad
 const isRentalParty = (rental, userId) => (
   rental.renterId.equals(userId) || rental.ownerId.equals(userId)
 );
-
-const canCreateDisputeForRental = (rental) => {
-  if (BASE_DISPUTABLE_RENTAL_STATUSES.includes(rental.status)) {
-    return true;
-  }
-
-  if (rental.status !== RentalStatus.COMPLETED) {
-    return false;
-  }
-
-  // MVP không có completedAt, tạm dùng updatedAt của rental để cho phép khiếu nại sau trả đồ trong 7 ngày.
-  const completedAt = rental.updatedAt || rental.endDate;
-  const completedDisputeDeadline = new Date(completedAt);
-  completedDisputeDeadline.setDate(completedDisputeDeadline.getDate() + COMPLETED_DISPUTE_WINDOW_DAYS);
-
-  return new Date() <= completedDisputeDeadline;
-};
 
 const getFallbackRestoreStatuses = (rental) => {
   const now = new Date();
@@ -150,41 +135,37 @@ const applyPenalty = async (userToPenalize, penaltyType, { session = null } = {}
   return userToPenalize;
 };
 
-const createDisputeAndFreezeRental = async (disputePayload, rental) => {
-  // MVP fallback: nếu MongoDB local không hỗ trợ transaction/replica set, vẫn chạy flow cũ nhưng giữ logic ở một nơi.
-  const createWithoutTransaction = async () => {
-    const dispute = await Dispute.create(disputePayload);
-    rental.status = RentalStatus.DISPUTED;
-    await rental.save();
-
-    return dispute;
-  };
-
-  const session = await mongoose.startSession();
-
-  try {
-    let createdDispute;
-
-    await session.withTransaction(async () => {
-      const disputes = await Dispute.create([disputePayload], { session });
-      createdDispute = disputes[0];
-      rental.status = RentalStatus.DISPUTED;
-      await rental.save({ session });
-    });
-
-    return createdDispute;
-  } catch (error) {
-    const transactionUnsupported = /Transaction numbers are only allowed|replica set member|Transaction.*not supported/i.test(error.message);
-
-    if (!transactionUnsupported) {
-      throw error;
+const createDisputeAndFreezeRental = (disputePayload, rental) => (
+  runWithOptionalTransaction(async (session) => {
+    if (!canCreateDisputeForRental(rental)) {
+      throw new DisputeConflictError('Đơn thuê đã hết hạn khiếu nại.');
     }
 
-    return createWithoutTransaction();
-  } finally {
-    await session.endSession();
-  }
-};
+    const { modifiedCount } = await Rental.updateOne(
+      { _id: rental._id, status: rental.status },
+      { $set: { status: RentalStatus.DISPUTED } },
+      session ? { session } : undefined
+    );
+    if (!modifiedCount) {
+      throw new DisputeConflictError('Đơn thuê đã thay đổi trạng thái, vui lòng tải lại.');
+    }
+
+    try {
+      if (!session) return await Dispute.create(disputePayload);
+      const [dispute] = await Dispute.create([disputePayload], { session });
+      return dispute;
+    } catch (error) {
+      // MongoDB standalone does not roll back the rental update.
+      if (!session) {
+        await Rental.updateOne(
+          { _id: rental._id, status: RentalStatus.DISPUTED },
+          { $set: { status: rental.status } }
+        );
+      }
+      throw error;
+    }
+  })
+);
 
 // [USER] POST /api/disputes - Báo cáo sự cố và đóng băng đơn thuê
 exports.createDispute = async (req, res) => {
@@ -253,6 +234,9 @@ exports.createDispute = async (req, res) => {
       dispute
     });
   } catch (error) {
+    if (error instanceof DisputeConflictError) {
+      return res.status(409).json({ message: error.message });
+    }
     res.status(500).json({ message: 'Lỗi máy chủ', error: error.message });
   }
 };
@@ -465,6 +449,13 @@ exports.resolveDispute = async (req, res) => {
         throw new DisputeConflictError(CONFLICT_MESSAGE);
       }
 
+      if (rentalUpdate.status === RentalStatus.COMPLETED && !rental.completedAt) {
+        const firstCompletionByAdmin = winner === DisputeWinner.OWNER &&
+          [RentalStatus.CONFIRMED, RentalStatus.IN_PROGRESS].includes(dispute.previousRentalStatus);
+        rentalUpdate.completedAt = getRecordedCompletionAt(rental) ||
+          (firstCompletionByAdmin ? claimedDispute.resolvedAt : getCompletionAt(rental));
+      }
+
       await Rental.findByIdAndUpdate(
         rental._id,
         rentalUpdate,
@@ -537,11 +528,11 @@ exports.withdrawDispute = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy sự cố' });
     }
 
-    if (dispute.reporterId.toString() !== req.user._id.toString()) {
+    if (!isDisputeReporter(dispute, req.user._id)) {
       return res.status(403).json({ message: 'Chỉ người tạo báo cáo mới có quyền rút khiếu nại.' });
     }
 
-    if (!ACTIVE_DISPUTE_STATUSES.includes(dispute.status)) {
+    if (!isActiveDispute(dispute)) {
       return res.status(400).json({ message: 'Sự cố này đã được xử lý hoặc đã được rút, không thể rút.' });
     }
 
@@ -556,6 +547,10 @@ exports.withdrawDispute = async (req, res) => {
     }
 
     const restored = getRestoreStatuses(dispute, rental);
+    const rentalUpdate = { status: restored.rentalStatus };
+    if (restored.rentalStatus === RentalStatus.COMPLETED && !rental.completedAt) {
+      rentalUpdate.completedAt = getCompletionAt(rental);
+    }
 
     // Rút khiếu nại phải đưa rental/item thoát DISPUTED theo snapshot đã lưu.
     const { updatedDispute, syncedItem } = await runWithOptionalTransaction(async (session) => {
@@ -576,7 +571,7 @@ exports.withdrawDispute = async (req, res) => {
 
       await Rental.findByIdAndUpdate(
         rental._id,
-        { status: restored.rentalStatus },
+        rentalUpdate,
         session ? { session } : undefined
       );
 
