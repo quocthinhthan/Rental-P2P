@@ -1,6 +1,7 @@
 // backend/services/itemAvailability.service.js
 const Item = require('../models/Item.model');
 const Rental = require('../models/Rental.model');
+const { Error: { DocumentNotFoundError } } = require('mongoose');
 const { ItemStatus } = require('../enums/item.enum');
 const { RentalStatus } = require('../enums/rental.enum');
 
@@ -174,8 +175,15 @@ const syncItemRuntimeStatus = async (itemId, { session = null } = {}) => {
 
   const nextStatus = currentRental ? ItemStatus.RENTED : ItemStatus.AVAILABLE;
   if (item.status !== nextStatus) {
+    // An owner or admin may have hidden the item while the rental was being queried.
+    item.$where = { status: { $ne: ItemStatus.DELISTED }, delistedByAdmin: { $ne: true } };
     item.status = nextStatus;
-    await item.save(session ? { session } : undefined);
+    try {
+      await item.save(session ? { session } : undefined);
+    } catch (error) {
+      if (error instanceof DocumentNotFoundError) return itemQuery.clone();
+      throw error;
+    }
   }
 
   return item;

@@ -11,6 +11,7 @@ function LoginPage() {
   const navigate = useNavigate();
   const [apiError, setApiError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -23,6 +24,7 @@ function LoginPage() {
   }, []);
 
   const onSubmit = async (data) => {
+    setShowPassword(false);
     setLoading(true);
     setApiError(null);
     try {
@@ -71,6 +73,7 @@ function LoginPage() {
                 type="email" 
                 className={`auth-input ${errors.email ? 'is-invalid' : ''}`}
                 placeholder="Địa chỉ Email"
+                autoComplete="username"
                 {...register('email', { 
                   required: 'Email là bắt buộc',
                   pattern: {
@@ -84,14 +87,38 @@ function LoginPage() {
             </div>
 
             <div className="auth-input-group">
-              <input 
-                type="password" 
-                className={`auth-input ${errors.password ? 'is-invalid' : ''}`}
-                placeholder="Mật khẩu"
-                {...register('password', { required: 'Mật khẩu là bắt buộc' })}
-              />
-              <i className="fas fa-lock"></i>
-              {errors.password && <div className="auth-invalid-feedback">{errors.password.message}</div>}
+              <div className="auth-password-field">
+                <label htmlFor="login-password" className="visually-hidden">Mật khẩu</label>
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  className={`auth-input ${errors.password ? 'is-invalid' : ''}`}
+                  placeholder="Mật khẩu"
+                  autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.password)}
+                  aria-describedby={errors.password ? 'login-password-error' : undefined}
+                  {...register('password', { required: 'Mật khẩu là bắt buộc' })}
+                />
+                <i className="fas fa-lock" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  aria-label="Hiện mật khẩu"
+                  aria-pressed={showPassword}
+                  aria-controls="login-password"
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  <span className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`} aria-hidden="true" />
+                </button>
+              </div>
+              {errors.password && (
+                <div id="login-password-error" className="auth-invalid-feedback">{errors.password.message}</div>
+              )}
             </div>
 
             <div className="d-flex justify-content-between align-items-center mb-4 mt-2">
