@@ -7,6 +7,7 @@ const Dispute = require('../models/Dispute.model');
 const Review = require('../models/Review.model');
 const ItemReport = require('../models/ItemReport.model');
 const AuditLog = require('../models/AuditLog.model');
+const IdentityProfile = require('../models/IdentityProfile.model');
 const { ItemStatus } = require('../enums/item.enum');
 const { RentalStatus, PaymentStatus } = require('../enums/rental.enum');
 const { DisputeStatus } = require('../enums/dispute.enum');
@@ -155,7 +156,7 @@ exports.getAllUsers = async (req, res) => {
 
     const [users, total] = await Promise.all([
       User.find(match)
-        .select('-password')
+        .select('-password -resetPasswordToken -resetPasswordExpire')
         .sort(sort)
         .skip(skip)
         .limit(limit),
@@ -236,7 +237,7 @@ exports.getAdminUserDetail = async (req, res) => {
       return res.status(400).json({ message: 'User ID khong hop le' });
     }
 
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id).select('-password -resetPasswordToken -resetPasswordExpire');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -246,7 +247,8 @@ exports.getAdminUserDetail = async (req, res) => {
       ownerRentalCount,
       renterRentalCount,
       disputeCount,
-      auditLogs
+      auditLogs,
+      identityProfile
     ] = await Promise.all([
       Item.countDocuments({ ownerId: user._id }),
       Rental.countDocuments({ ownerId: user._id }),
@@ -259,11 +261,14 @@ exports.getAdminUserDetail = async (req, res) => {
         ]
       })
       .sort({ createdAt: -1 })
-      .populate('actorId', 'fullName email')
+      .populate('actorId', 'fullName email'),
+      IdentityProfile.findOne({ userId: user._id })
+        .select('isActive idNumberMasked fullName expiryRaw expiryDate isPermanentExpiry verificationMethod documentSpoofCheckPassed documentOcrPassed faceMatchingVerified faceMatchVerified livenessVerified cccdOwnershipVerified livenessResults policyVersion verifiedAt revokedAt revokedReason')
     ]);
 
     res.status(200).json({
       user,
+      ekycProfile: identityProfile || null,
       stats: {
         itemCount,
         ownerRentalCount,
@@ -274,6 +279,66 @@ exports.getAdminUserDetail = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// PATCH /api/admin/users/:id/require-ekyc
+exports.requireUserEkycReverification = async (req, res) => {
+  const { reason = '' } = req.body || {};
+
+  try {
+    if (!isObjectId(req.params.id)) {
+      return res.status(400).json({ message: 'User ID khong hop le' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const before = {
+      ekycStatus: user.ekycStatus,
+      verificationMethod: user.verificationMethod,
+      trustScore: user.trustScore
+    };
+
+    user.ekycStatus = 'unverified';
+    user.ekycVerifiedAt = null;
+    user.ekycExpiresAt = null;
+    await user.save();
+
+    await IdentityProfile.findOneAndUpdate(
+      { userId: user._id, isActive: true },
+      {
+        $set: {
+          isActive: false,
+          revokedAt: new Date(),
+          revokedReason: String(reason || 'Admin yêu cầu xác minh lại danh tính').trim()
+        }
+      }
+    );
+
+    const updatedTrustUser = await recalculateUserTrustScore(user._id);
+
+    await createAuditLog({
+      req,
+      action: 'admin.user.update_ekyc',
+      targetType: 'User',
+      targetId: user._id,
+      before,
+      after: {
+        ekycStatus: 'unverified',
+        trustScore: updatedTrustUser?.trustScore
+      },
+      reason: String(reason || 'Yêu cầu xác minh lại danh tính (eKYC)').trim()
+    });
+
+    return res.status(200).json({
+      message: 'Đã chuyển trạng thái tài khoản sang yêu cầu xác minh lại danh tính (eKYC).',
+      user: updatedTrustUser
+    });
+  } catch {
+    return res.status(500).json({ message: 'Server error' });
   }
 };
 

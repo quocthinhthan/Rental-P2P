@@ -37,11 +37,32 @@ const uploadLimiter = createRateLimiter({
   message: 'Bạn tải hoặc xóa ảnh quá nhanh. Vui lòng thử lại sau ít phút.'
 });
 
-// Strict limit for paid external AI endpoints (Gemini / FPT.AI eKYC)
+// Strict limit for paid external AI endpoints (Gemini / Viettel AI eKYC)
 const aiLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 10,
   message: 'Bạn gọi tính năng AI quá nhiều lần. Vui lòng thử lại sau 15 phút.'
+});
+
+// Limit for creating new eKYC verification sessions
+const ekycSessionLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  message: 'Bạn đã tạo quá nhiều phiên xác minh danh tính. Vui lòng thử lại sau 15 phút.'
+});
+
+// Limit for claiming QR handoff tokens on mobile
+const ekycClaimLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 15,
+  message: 'Quá nhiều yêu cầu kết nối phiên xác minh. Vui lòng thử lại sau ít phút.'
+});
+
+// Limit for uploading CCCD / selfie images to Viettel AI eKYC endpoints
+const ekycSubmitLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 15,
+  message: 'Bạn gửi yêu cầu kiểm tra eKYC quá nhanh. Vui lòng thử lại sau ít phút.'
 });
 
 module.exports = {
@@ -50,5 +71,8 @@ module.exports = {
   loginLimiter,
   forgotPasswordLimiter,
   uploadLimiter,
-  aiLimiter
+  aiLimiter,
+  ekycSessionLimiter,
+  ekycClaimLimiter,
+  ekycSubmitLimiter
 };

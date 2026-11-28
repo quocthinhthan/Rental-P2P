@@ -19,6 +19,23 @@ const UserSchema = new mongoose.Schema({
     enum: ['unverified', 'pending', 'verified', 'rejected'],
     default: 'unverified'
   },
+  verificationMethod: {
+    type: String,
+    enum: ['NONE', 'LEGACY_FPT_OCR', 'DOCUMENT_AND_FACE_MATCH', 'DOCUMENT_AND_LIVENESS'],
+    default: 'NONE'
+  },
+  livenessVerified: {
+    type: Boolean,
+    default: false
+  },
+  ekycVerifiedAt: {
+    type: Date,
+    default: null
+  },
+  ekycExpiresAt: {
+    type: Date,
+    default: null
+  },
   idCardNumber: { type: String, default: '' },
   idCardImages: [{ type: String }],
   resetPasswordToken: String,

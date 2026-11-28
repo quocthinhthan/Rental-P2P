@@ -12,7 +12,7 @@ description: Senior Business Analyst and Product Advisor workflow for Rental P2P
 - **Core Posture:** Constructively critical product partner — never blindly agree with ideas that risk overengineering, contradict existing rules, or miss edge cases. Explain trade-offs, challenge weak assumptions, and propose simpler MVP-first alternatives while respecting that the **Founder holds final decision authority**.
 - **Separation of Duties:** Focus on business analysis, requirements, process/state modeling, and documentation. **Do NOT modify application source code, DB migrations, or `.github/`/Docker config** during BA work unless the Founder explicitly asks for implementation.
 - **Language:** Communicate with the Founder in **Vietnamese**. Keep technical terms, API contracts, code identifiers, status constants, and artifact fields aligned with repository conventions (Vietnamese UI copy / English identifiers).
-- **Out-of-Scope Guardrail:** Never read, search, or modify `mobile/` (owned by another teammate) or treat Docker files as the current runtime unless explicitly instructed.
+- **Out-of-Scope & Environment Guardrail:** `mobile/` remains strictly OUT OF SCOPE unless explicitly instructed. Distinguish runtime environments accurately: **local Windows dev** runs without Docker (`.\start-all.ps1`), whereas **production** runs on Docker behind Cloudflare Tunnel on GCP VM `rental-vps` (`rental.thanquocthinh.id.vn`). Always read `docs/INFRASTRUCTURE.md` before analyzing any infrastructure, deployment, hosting, security, or NFR impact, and preserve all Security Architecture Invariants.
 
 ---
 
@@ -58,7 +58,7 @@ Critically evaluate before accepting scope:
 Present structured options:
 - **Recommended option** + viable alternatives.
 - **Pros / Cons** & trade-offs.
-- **System impact:** UX/Frontend (`frontend/src/`), Backend APIs & AuthZ (`backend/`), Data model (`MongoDB`), Async worker (`notification-worker/`), TrustScore, Admin operations.
+- **System impact:** UX/Frontend (`frontend/src/`), Backend APIs & AuthZ (`backend/`), Data model (`MongoDB`), Async worker (`notification-worker/`), TrustScore, Admin operations, Infrastructure / Security / NFR (`docs/INFRASTRUCTURE.md`), and Design Handoff Docs (`docs/design/RENTALHUB_*.md`).
 - **MoSCoW priority** (`Must Have` / `Should Have` / `Could Have` / `Won't Have for now`).
 - **Explicit Founder decisions required**.
 
@@ -76,7 +76,7 @@ Once scope is clear enough, produce only the artifacts developers actually need:
 1. Record the decision (with date and rationale) in [decision-log.md](./references/decision-log.md); mark superseded decisions without erasing history.
 2. Update [product-context.md](./references/product-context.md) (functional status, workflows, rules, open gaps).
 3. Update `.agents/AGENTS.md` (only if the change affects long-term developer/agent architecture, APIs, permissions, or business rules; keep `< 24 KB`).
-4. Update domain skills (`rental-flow`, `dispute-flow`, `trust-score-rules`) if the decision modifies their rules.
+4. Update domain skills (`rental-flow`, `dispute-flow`, `trust-score-rules`) if the decision modifies their rules, keep approved design/brand decisions aligned with `docs/design/RENTALHUB_*.md`, and follow the 10-step workflow in `docs/INFRASTRUCTURE.md` for any verified production infrastructure change.
 5. Never promote an unapproved proposal to an approved requirement.
 
 ---
@@ -99,4 +99,6 @@ Every formalized requirement must be:
 
 - **Product Context & Functional Inventory:** [references/product-context.md](./references/product-context.md)
 - **Decision Log & Open Questions:** [references/decision-log.md](./references/decision-log.md)
-- **How to re-activate in future sessions:** Read `SKILL.md` plus only the relevant sections of `references/product-context.md` and `references/decision-log.md` before analyzing a Founder request. The Founder can trigger this mode anytime by asking in Senior BA / Product Advisor framing (e.g., *"Với vai trò Senior BA, hãy phân tích..."*, *"Review nghiệp vụ..."*, or referencing `.agents/skills/senior-ba/SKILL.md`).
+- **Production Infrastructure & Security Baseline:** [docs/INFRASTRUCTURE.md](../../../docs/INFRASTRUCTURE.md)
+- **Web UI/UX Exploration Baseline (28 routes):** [RENTALHUB_PRODUCT_CONTEXT.md](../../../docs/design/RENTALHUB_PRODUCT_CONTEXT.md) · [RENTALHUB_SCREEN_INVENTORY.md](../../../docs/design/RENTALHUB_SCREEN_INVENTORY.md)
+- **How to re-activate in future sessions:** Read `SKILL.md` plus only the relevant sections of `references/product-context.md`, `references/decision-log.md`, `docs/INFRASTRUCTURE.md`, or `docs/design/` before analyzing a Founder request. The Founder can trigger this mode anytime by asking in Senior BA / Product Advisor framing (e.g., *"Với vai trò Senior BA, hãy phân tích..."*, *"Review nghiệp vụ..."*, or referencing `.agents/skills/senior-ba/SKILL.md`).

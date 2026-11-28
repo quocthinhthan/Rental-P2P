@@ -34,6 +34,7 @@ app.get('/', (req, res) => {
 // Gắn các API routes
 // ===============================================================
 app.use('/api/auth', require('./routes/auth.routes')); // (Đã bỏ comment)
+app.use('/api/ekyc', require('./routes/ekyc.routes'));
 app.use('/api/items', require('./routes/items.routes'));
 app.use('/api/rentals', require('./routes/rentals.routes')); // (Mới)
 app.use('/api/views', require('./routes/views.routes'));

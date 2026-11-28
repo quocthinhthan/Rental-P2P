@@ -52,6 +52,7 @@ export default defineConfig(({ mode }) => {
     envPrefix: ENV_PREFIXES,
     define,
     server: {
+      host: true,
       port,
       strictPort: true,
     },

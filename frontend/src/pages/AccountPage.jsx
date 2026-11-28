@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import apiService from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import DesktopEkycPanel from '../components/Ekyc/DesktopEkycPanel';
 import Swal from 'sweetalert2';
 import '../styles/AccountPage.css';
 
@@ -16,21 +17,11 @@ function AccountPage() {
   } = useForm();
 
   const [saving, setSaving] = useState(false);
-
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState('');
-  const [idCardFile, setIdCardFile] = useState(null);
-  const [idCardPreview, setIdCardPreview] = useState('');
 
-  const [ekycUrl, setEkycUrl] = useState('');
-  const [ekycLoading, setEkycLoading] = useState(false);
-  const [ekycError, setEkycError] = useState('');
-  const [ekycData, setEkycData] = useState(null);
-
-  // Controls whether to show eKYC form (hidden when already verified)
-  const [ekycFormOpen, setEkycFormOpen] = useState(false);
-
-  const isVerified = user?.ekycStatus === 'verified';
+  const isVerified = user?.ekycStatus === 'verified'
+    && (!user?.ekycExpiresAt || new Date(user.ekycExpiresAt) > new Date());
 
   useEffect(() => {
     if (!user) return;
@@ -42,9 +33,7 @@ function AccountPage() {
     setValue('bankAccount.bankName', user.bankAccount?.bankName || '');
     setValue('bankAccount.accountNumber', user.bankAccount?.accountNumber || '');
     setValue('bankAccount.accountHolder', user.bankAccount?.accountHolder || '');
-    // If not verified, open eKYC form by default
-    if (!isVerified) setEkycFormOpen(true);
-  }, [user, setValue, isVerified]);
+  }, [user, setValue]);
 
   const uploadImageFile = async (file) => {
     const response = await apiService.uploadImage(file);
@@ -61,65 +50,12 @@ function AccountPage() {
     setAvatarPreview(URL.createObjectURL(file));
   };
 
-  const handleIdCardChange = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIdCardFile(file);
-    setIdCardPreview(URL.createObjectURL(file));
-    setEkycData(null);
-    setEkycError('');
-  };
-
-  const handleVerifyEkyc = async () => {
-    let uploadedPublicId = '';
-    setEkycLoading(true);
-    setEkycError('');
-    setEkycData(null);
-
-    try {
-      let imageUrl = ekycUrl.trim();
-      if (idCardFile) {
-        const uploaded = await uploadImageFile(idCardFile);
-        imageUrl = uploaded.imageUrl;
-        uploadedPublicId = uploaded.publicId || '';
-        if (imageUrl) setEkycUrl(imageUrl);
-      }
-
-      if (!imageUrl) {
-        setEkycError('Vui lòng tải ảnh CCCD hoặc nhập URL ảnh.');
-        setEkycLoading(false);
-        return;
-      }
-
-      const response = await apiService.verifyEKYC(imageUrl);
-      const extracted = response.data?.extractedData;
-      if (!extracted?.idNumber) {
-        throw new Error('Không đọc được thông tin từ ảnh CCCD.');
-      }
-
-      setEkycData(extracted);
-      if (extracted.fullName) setValue('fullName', extracted.fullName);
-      if (extracted.address) setValue('address', extracted.address);
-      
-      await Swal.fire({
-        title: 'Xác thực thành công! 🎉',
-        html: `Thông tin CCCD của <b>${extracted.fullName || ''}</b> đã được đọc thành công.<br/><br/>Nhấn <b>"Lưu thay đổi"</b> bên dưới để hoàn tất xác thực.`,
-        icon: 'success',
-        confirmButtonText: 'Đã hiểu, tiếp tục'
-      });
-    } catch (error) {
-      if (uploadedPublicId) {
-        try {
-          await apiService.deleteImage(uploadedPublicId);
-        } catch (cleanupError) {
-          console.warn('Cleanup CCCD image failed:', cleanupError);
-        }
-      }
-      setEkycError(error.response?.data?.message || 'Xác thực eKYC thất bại.');
-    } finally {
-      setEkycLoading(false);
-    }
-  };
+  const handleVerifiedSuccess = useCallback((freshUser) => {
+    if (!freshUser) return;
+    updateUser(freshUser);
+    if (freshUser.fullName) setValue('fullName', freshUser.fullName);
+    if (freshUser.address) setValue('address', freshUser.address);
+  }, [updateUser, setValue]);
 
   const onSubmit = async (data) => {
     setSaving(true);
@@ -129,15 +65,6 @@ function AccountPage() {
       if (avatarFile) {
         const uploadedAvatar = await uploadImageFile(avatarFile);
         if (uploadedAvatar.imageUrl) avatarUrl = uploadedAvatar.imageUrl;
-      }
-
-      let idCardImageUrl = ekycUrl.trim();
-      if (!idCardImageUrl && idCardFile) {
-        const uploadedIdCard = await uploadImageFile(idCardFile);
-        if (uploadedIdCard.imageUrl) {
-          idCardImageUrl = uploadedIdCard.imageUrl;
-          setEkycUrl(uploadedIdCard.imageUrl);
-        }
       }
 
       const payload = {
@@ -151,11 +78,6 @@ function AccountPage() {
           accountHolder: data.bankAccount?.accountHolder || ''
         }
       };
-
-      if (ekycData?.idNumber) {
-        payload.idCardNumber = ekycData.idNumber;
-        if (idCardImageUrl) payload.idCardImages = [idCardImageUrl];
-      }
 
       const response = await apiService.updateProfile(payload);
       updateUser(response.data);
@@ -234,16 +156,30 @@ function AccountPage() {
                   {!isVerified && (
                     <div className="mt-2">
                       <i className="fas fa-exclamation-triangle text-warning" />
-                      <span className="text-warning fw-medium">Xác thực eKYC để mở đầy đủ tính năng.</span>
+                      <span className="text-warning fw-medium">Xác minh danh tính (eKYC) để mở đầy đủ tính năng thuê và cho thuê.</span>
                     </div>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* ── RIGHT: Form ── */}
+            {/* ── RIGHT: Form & eKYC ── */}
             <div className="col-lg-8">
               <div className="acc-form-card">
+                {/* ── Section: eKYC (Highlighted at top when unverified, or clean verified banner) ── */}
+                <div className="acc-section-title">
+                  <i className="fas fa-id-card" />Xác minh danh tính (eKYC)
+                </div>
+
+                <div className="mb-4">
+                  <DesktopEkycPanel
+                    user={user}
+                    onVerifiedSuccess={handleVerifiedSuccess}
+                  />
+                </div>
+
+                <hr className="acc-divider" />
+
                 <form onSubmit={handleSubmit(onSubmit)}>
 
                   {/* ── Section: Thông tin cơ bản ── */}
@@ -264,7 +200,7 @@ function AccountPage() {
                       {errors.fullName && <div className="invalid-feedback">{errors.fullName.message}</div>}
                       {isVerified && (
                         <div className="form-text text-success small mt-1">
-                          <i className="fas fa-lock me-1" /> Họ tên đã xác thực theo CCCD (không thể thay đổi).
+                          <i className="fas fa-lock me-1" /> Họ tên đã khóa theo hồ sơ eKYC (không thể tự chỉnh sửa).
                         </div>
                       )}
                     </div>
@@ -370,112 +306,6 @@ function AccountPage() {
                         {...register('avatarUrl')}
                       />
                     </div>
-                  </div>
-
-                  {/* ── Divider ── */}
-                  <hr className="acc-divider" />
-
-                  {/* ── Section: eKYC ── */}
-                  <div className="acc-section-title">
-                    <i className="fas fa-id-card" />Xác thực danh tính (eKYC)
-                  </div>
-
-                  <div className="acc-ekyc-section">
-                    {/* If verified, show banner (no upload or edit allowed) */}
-                    {isVerified ? (
-                      <div className="acc-ekyc-verified-banner">
-                        <div className="acc-ekyc-verified-icon">
-                          <i className="fas fa-shield-alt" />
-                        </div>
-                        <div>
-                          <div className="acc-ekyc-verified-title">Danh tính đã được xác thực</div>
-                          <div className="acc-ekyc-verified-sub">Tài khoản của bạn đã được xác minh qua CCCD</div>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Collapse close btn when verified and form is open */}
-                        {isVerified && ekycFormOpen && (
-                          <div className="d-flex justify-content-between align-items-center mb-3">
-                            <span className="text-muted small">
-                              <i className="fas fa-info-circle me-1 text-primary" />
-                              Xác thực lại sẽ ghi đè thông tin CCCD cũ.
-                            </span>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-secondary"
-                              onClick={() => { setEkycFormOpen(false); setEkycData(null); setEkycError(''); }}
-                            >
-                              <i className="fas fa-times me-1" />Hủy
-                            </button>
-                          </div>
-                        )}
-
-                        <div className="row g-3">
-                          <div className="col-12">
-                            <label className="form-label">
-                              Ảnh CCCD mặt trước <sup className="text-danger">*</sup>
-                            </label>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="form-control"
-                              onChange={handleIdCardChange}
-                            />
-                            {(idCardPreview || ekycUrl) && (
-                              <img
-                                src={idCardPreview || ekycUrl}
-                                alt="cccd-preview"
-                                className="acc-idcard-preview"
-                              />
-                            )}
-                          </div>
-                          <div className="col-12">
-                            <label className="form-label">Hoặc dán URL ảnh CCCD</label>
-                            <input
-                              type="url"
-                              className="form-control"
-                              placeholder="https://..."
-                              value={ekycUrl}
-                              onChange={(e) => setEkycUrl(e.target.value)}
-                            />
-                          </div>
-                          <div className="col-12">
-                            <button
-                              type="button"
-                              className="acc-verify-btn"
-                              onClick={handleVerifyEkyc}
-                              disabled={ekycLoading}
-                            >
-                              {ekycLoading ? (
-                                <><span className="spinner-border spinner-border-sm me-2" />Đang xác thực...</>
-                              ) : (
-                                <><i className="fas fa-fingerprint me-2" />Xác thực eKYC ngay</>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        {ekycError && (
-                          <div className="acc-alert-danger mt-3">
-                            <i className="fas fa-times-circle" /> {ekycError}
-                          </div>
-                        )}
-
-                        {ekycData && (
-                          <div className="acc-ekyc-data-card mt-3">
-                            <div className="d-flex align-items-center gap-2 mb-2">
-                              <i className="fas fa-check-circle text-success" />
-                              <span className="fw-bold text-success" style={{ fontSize: '.85rem' }}>Đã đọc thông tin thành công</span>
-                            </div>
-                            <div className="acc-ekyc-data-row"><span className="acc-ekyc-data-label">Họ tên:</span>{ekycData.fullName || '---'}</div>
-                            <div className="acc-ekyc-data-row"><span className="acc-ekyc-data-label">Số CCCD:</span>{ekycData.idNumber || '---'}</div>
-                            <div className="acc-ekyc-data-row"><span className="acc-ekyc-data-label">Ngày sinh:</span>{ekycData.dob || '---'}</div>
-                            <div className="acc-ekyc-data-row"><span className="acc-ekyc-data-label">Địa chỉ:</span>{ekycData.address || '---'}</div>
-                          </div>
-                        )}
-                      </>
-                    )}
                   </div>
 
                   {/* ── Submit ── */}

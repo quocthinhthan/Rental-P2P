@@ -36,6 +36,7 @@ import AdminItemsPage from './pages/AdminItemsPage';
 import AdminItemDetailPage from './pages/AdminItemDetailPage';
 import AdminItemReportsPage from './pages/AdminItemReportsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
+import MobileEkycPage from './pages/MobileEkycPage';
 
 function ScrollToTop() {
   const { pathname, search } = useLocation();
@@ -48,6 +49,8 @@ function ScrollToTop() {
 }
 
 function App() {
+  const location = useLocation();
+  const isStandaloneEkyc = location.pathname === '/verify-identity';
   const [showBackToTop, setShowBackToTop] = useState(false);
 
   useEffect(() => {
@@ -62,9 +65,9 @@ function App() {
   return (
     <>
       <GlobalSpinner />
-      <LocationPickerHost />
+      {!isStandaloneEkyc && <LocationPickerHost />}
       <ScrollToTop />
-      <Header />
+      {!isStandaloneEkyc && <Header />}
       <Routes>
         {/* Routes công khai */}
         <Route path="/" element={<HomePage />} />
@@ -80,6 +83,7 @@ function App() {
         <Route path="/faq" element={<FAQPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/vnpay-return" element={<VNPayReturnPage />} />
+        <Route path="/verify-identity" element={<MobileEkycPage />} />
         <Route path="*" element={<NotFoundPage />} />
 
         {/* 2. Cấu hình Routes cần bảo vệ */}
@@ -101,10 +105,10 @@ function App() {
           {/* Thêm bất kỳ route nào cần login vào đây */}
         </Route>
       </Routes>
-      <Footer />
+      {!isStandaloneEkyc && <Footer />}
 
       {/* Back to Top button (từ template) */}
-      {showBackToTop && (
+      {!isStandaloneEkyc && showBackToTop && (
         <button
           type="button"
           className="btn btn-primary btn-lg-square back-to-top"
@@ -116,7 +120,7 @@ function App() {
       )}
 
       {/* Help Center Widget — floating FAQ/guide panel */}
-      <HelpWidget />
+      {!isStandaloneEkyc && <HelpWidget />}
     </>
   );
 }

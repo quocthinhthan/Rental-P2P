@@ -291,27 +291,26 @@ const helpArticles = [
     id: 'ekyc-verification',
     category: 'Uy tín',
     icon: 'fas fa-id-card',
-    title: 'Xác minh danh tính (eKYC) bằng CCCD',
-    description: 'Tại sao cần xác minh CCCD và quy trình hoạt động như thế nào.',
-    keywords: ['ekyc', 'cccd', 'căn cước công dân', 'xác minh', 'danh tính', 'cư dân', 'cảnh sát', 'quốc gia'],
-    content: `<p>RentalP2P sử dụng hệ thống xác minh điện tử <strong>eKYC</strong> (Electronic Know Your Customer) bằng Căn cước công dân (CCCD), đối chiếu với <strong>cơ sở dữ liệu cư dân quốc gia Việt Nam</strong>.</p>
+    title: 'Xác minh danh tính (eKYC) bằng CCCD & Liveness 5 tư thế',
+    description: 'Tại sao cần thực hiện eKYC và phạm vi kiểm tra của quy trình hiện tại.',
+    keywords: ['ekyc', 'cccd', 'căn cước công dân', 'xác minh', 'danh tính', 'qr', 'liveness', 'viettel ai'],
+    content: `<p>RentalP2P sử dụng quy trình <strong>eKYC</strong> tích hợp dịch vụ <strong>Viettel AI</strong> gồm kiểm tra giả mạo thẻ CCCD hai mặt, bóc tách thông tin OCR và kiểm tra thực thể sống (<strong>Full Liveness Detection 5 tư thế</strong>).</p>
 
-<p><strong>Tại sao cần xác minh?</strong></p>
+<p><strong>Tại sao cần thực hiện eKYC?</strong></p>
 <ul>
-  <li>Xác nhận bạn là người thật, giảm rủi ro lừa đảo và giả mạo danh tính.</li>
-  <li>Tăng điểm tin cậy đáng kể — tài khoản đã xác minh CCCD được ưu tiên hiển thị và tin tưởng hơn.</li>
-  <li>Một số chủ đồ chỉ cho thuê đối với người thuê đã xác minh danh tính.</li>
+  <li>Hạn chế tài khoản ảo và tăng cường an toàn giao dịch thuê &amp; cho thuê tài sản cá nhân.</li>
+  <li>Cộng ngay <strong>+20 điểm Tin cậy (TrustScore)</strong> và mở khóa quyền tạo đơn thuê, đăng sản phẩm cho thuê và ký hợp đồng điện tử.</li>
 </ul>
 
-<p><strong>Quy trình xác minh:</strong></p>
+<p><strong>Quy trình thực hiện:</strong></p>
 <ol>
-  <li>Vào trang <strong>Tài khoản của tôi</strong> → mục <em>Xác minh danh tính</em>.</li>
-  <li>Tải ảnh hai mặt CCCD còn hạn sử dụng.</li>
-  <li>Hệ thống tự động đối chiếu thông tin với cơ sở dữ liệu cư dân quốc gia.</li>
-  <li>Kết quả thường có trong vài phút. Sau khi xác minh thành công, huy hiệu <em>Đã xác minh</em> sẽ xuất hiện trên hồ sơ của bạn.</li>
+  <li>Vào trang <strong>Tài khoản của tôi</strong> → nhấn <em>Xác minh danh tính</em> và quét mã QR bằng điện thoại (hoặc thực hiện trực tiếp trên trình duyệt điện thoại).</li>
+  <li>Đồng ý xử lý dữ liệu cá nhân và chụp trực tiếp mặt trước &amp; mặt sau thẻ CCCD bản gốc.</li>
+  <li>Kiểm tra, xác nhận thông tin OCR được bóc tách từ CCCD.</li>
+  <li>Thực hiện kiểm tra thực thể sống trên camera trước với đầy đủ <strong>5 tư thế khuôn mặt</strong> (Nhìn thẳng, Quay trái, Quay phải, Ngẩng lên, Cúi xuống). Kết quả tự động đồng bộ về máy tính.</li>
 </ol>
 
-<p><strong>Lưu ý:</strong> Thông tin CCCD được mã hóa và bảo mật, chỉ dùng để xác thực danh tính, không được chia sẻ cho bên thứ ba. Bạn không thể thay đổi thông tin CCCD sau khi đã xác minh thành công.</p>`,
+<p><strong>Lưu ý phạm vi nghiệp vụ &amp; Bảo mật:</strong> Quy trình MVP hiện tại kiểm tra tính hợp lệ của giấy tờ và thực thể sống 5 tư thế (không đối sánh khuôn mặt với ảnh CCCD và không đối chiếu Cơ sở dữ liệu quốc gia về dân cư). Số CCCD được mã hóa bảo mật và hình ảnh không lưu trữ công khai.</p>`,
   },
   {
     id: 'safe-policy',
