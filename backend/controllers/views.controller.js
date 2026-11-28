@@ -12,6 +12,10 @@ const {
   getTrustLevelFromScore,
   toSafeUserTrustSummary
 } = require('../services/trustScore.service');
+const {
+  ACTIVE_BOOKING_STATUSES,
+  toStartOfDay
+} = require('../services/itemAvailability.service');
 
 // GET /api/views/item-details/:id
 exports.getItemDetailView = async (req, res) => {
@@ -28,15 +32,11 @@ exports.getItemDetailView = async (req, res) => {
     }
 
     // Active rentals that block the calendar
-    const activeRentalStatuses = [
-      RentalStatus.CONFIRMED,
-      RentalStatus.IN_PROGRESS,
-      RentalStatus.PENDING_CONFIRMATION
-    ];
+    const today = toStartOfDay(new Date());
     const confirmedRentals = await Rental.find({
       itemId: req.params.id,
-      status: { $in: activeRentalStatuses },
-      endDate: { $gte: new Date() }
+      status: { $in: ACTIVE_BOOKING_STATUSES },
+      endDate: { $gte: today }
     }).select('startDate endDate');
 
     // isFavorited — check only when caller is authenticated
@@ -62,8 +62,6 @@ exports.getItemDetailView = async (req, res) => {
     );
 
     // Filter out past blocked dates to keep payload lean
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const upcomingBlockedDates = (item.blockedDates || []).filter(
       b => new Date(b.endDate) >= today
     );

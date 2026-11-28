@@ -5,6 +5,7 @@ const ItemReport = require('../models/ItemReport.model');
 const mongoose = require('mongoose');
 const { saveWithUniqueCode } = require('../utils/codeGenerator');
 const { getTrustLevelFromScore } = require('../services/trustScore.service');
+const { ACTIVE_BOOKING_STATUSES } = require('../services/itemAvailability.service');
 
 const DEFAULT_SEARCH_LIMIT = 100;
 const MAX_SEARCH_LIMIT = 200;
@@ -93,7 +94,7 @@ const searchItems = async (req, res) => {
 
       // Items busy due to confirmed/active rentals
       const overlappingRentals = await Rental.find({
-        status: { $in: ['confirmed', 'in_progress', 'pending_confirmation'] },
+        status: { $in: ACTIVE_BOOKING_STATUSES },
         startDate: { $lte: reqEnd },
         endDate:   { $gte: reqStart }
       }).select('itemId');
@@ -200,7 +201,7 @@ const searchItems = async (req, res) => {
     const itemIds = items.map(item => item._id);
     const activeRentals = await Rental.find({
       itemId: { $in: itemIds },
-      status: { $in: ['confirmed', 'in_progress', 'pending_confirmation'] }
+      status: { $in: ACTIVE_BOOKING_STATUSES }
     }).select('itemId startDate endDate');
 
     const today = new Date();
@@ -651,7 +652,7 @@ const addBlockedDates = async (req, res) => {
     // Check overlap with confirmed/active rentals
     const conflictingRental = await Rental.findOne({
       itemId: item._id,
-      status: { $in: ['confirmed', 'in_progress', 'pending_confirmation'] },
+      status: { $in: ACTIVE_BOOKING_STATUSES },
       startDate: { $lte: end },
       endDate:   { $gte: start }
     }).select('_id code');
