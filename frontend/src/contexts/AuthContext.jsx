@@ -57,7 +57,7 @@ export function AuthProvider({ children }) {
   };
 
   const updateUser = (userData) => {
-    setUser(userData);
+    setUser((prev) => (prev && userData ? { ...prev, ...userData } : userData));
   };
 
   const value = {

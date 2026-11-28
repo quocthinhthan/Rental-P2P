@@ -24,7 +24,7 @@ import VNPayReturnPage from './pages/VNPayReturnPage';
 import PublicUserProfilePage from './pages/PublicUserProfilePage';
 import FavoritesPage from './pages/FavoritesPage';
 import FinancialDashboardPage from './pages/FinancialDashboardPage';
-import ProtectedRoute from './components/Auth/ProtectedRoute'; // <-- 1. IMPORT
+import ProtectedRoute, { AdminRoute } from './components/Auth/ProtectedRoute'; // <-- 1. IMPORT
 import HelpWidget from './components/help/HelpWidget';
 import HelpCenterPage from './pages/HelpCenterPage';
 import FAQPage from './pages/FAQPage';
@@ -95,6 +95,11 @@ function App() {
           <Route path="/account" element={<AccountPage />} />
           <Route path="/post-item" element={<PostItemPage />} />
           <Route path="/edit-item/:itemId" element={<PostItemPage />} />
+          {/* Thêm bất kỳ route nào cần login vào đây */}
+        </Route>
+
+        {/* 3. Cấu hình Routes chỉ dành cho Admin */}
+        <Route element={<AdminRoute />}>
           <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/items" element={<AdminItemsPage />} />
@@ -102,7 +107,6 @@ function App() {
           <Route path="/admin/item-reports" element={<AdminItemReportsPage />} />
           <Route path="/admin/disputes" element={<AdminDisputesPage />} />
           <Route path="/admin/disputes/:disputeId" element={<AdminDisputeDetailPage />} />
-          {/* Thêm bất kỳ route nào cần login vào đây */}
         </Route>
       </Routes>
       {!isStandaloneEkyc && <Footer />}
