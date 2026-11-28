@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import apiService from '../services/api';
+import { ItemStatus } from '../constants/enums';
 import {
   disputeStatusConfig,
   paymentLabels,
@@ -231,10 +232,26 @@ function RentalSummaryCard({ rental, type }) {
   );
 }
 
-function ItemCard({ item, onEdit, onDelete }) {
+function ItemCard({ item, onEdit, onDelete, onChangeVisibility }) {
+  const [isUpdating, setIsUpdating] = useState(false);
+  const isReadOnly = item.delistedByAdmin;
+  const itemUrl = isReadOnly ? `/edit-item/${item._id}` : `/items/${item._id}`;
+  const isHidden = item.status === ItemStatus.DELISTED;
+  const readOnlyMessageId = `item-read-only-${item._id}`;
+  const visibilityLabel = isHidden ? 'Hiện lại' : 'Ẩn';
+
+  const handleChangeVisibility = async () => {
+    setIsUpdating(true);
+    try {
+      await onChangeVisibility(item);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   return (
     <div className="item-card">
-      <Link to={`/items/${item._id}`} className="item-card-link">
+      <Link to={itemUrl} className="item-card-link">
         <img
           src={item.mainImage || 'https://via.placeholder.com/300x175'}
           alt={item.name}
@@ -242,7 +259,7 @@ function ItemCard({ item, onEdit, onDelete }) {
         />
       </Link>
       <div className="item-card-body">
-        <Link to={`/items/${item._id}`} className="item-card-title">
+        <Link to={itemUrl} className="item-card-title">
           {item.name}
         </Link>
         <p className="item-card-price">
@@ -250,9 +267,52 @@ function ItemCard({ item, onEdit, onDelete }) {
           <span className="item-card-price-unit"> / ngày</span>
         </p>
         <p className="item-card-cat">{item.category}</p>
+        {isReadOnly ? (
+          <p id={readOnlyMessageId} className="small mb-2">
+            <span className="status-badge status-rejected">Đã bị quản trị viên ẩn</span>
+            <span className="d-block text-muted mt-1">Bạn chỉ có thể xem chi tiết.</span>
+          </p>
+        ) : isHidden && (
+          <p className="mb-2"><span className="status-badge status-cancelled">Đang tạm ẩn</span></p>
+        )}
         <div className="item-card-actions">
-          <button className="btn-xs btn-ghost-xs" onClick={() => onEdit(item._id)}>Sửa</button>
-          <button className="btn-xs btn-danger-xs" onClick={() => onDelete(item._id)}>Xóa</button>
+          {isReadOnly && (
+            <Link to={itemUrl} className="btn-xs btn-outline-xs" aria-label={`Xem chi tiết ${item.name}`}>
+              Xem chi tiết
+            </Link>
+          )}
+          <button
+            type="button"
+            className="btn-xs btn-ghost-xs"
+            disabled={isReadOnly || isUpdating}
+            aria-label={`Sửa ${item.name}`}
+            aria-describedby={isReadOnly ? readOnlyMessageId : undefined}
+            onClick={() => onEdit(item._id)}
+          >
+            Sửa
+          </button>
+          {!isReadOnly && (
+            <>
+              <button
+                type="button"
+                className="btn-xs btn-outline-xs"
+                disabled={isUpdating}
+                aria-label={`${visibilityLabel} ${item.name}`}
+                onClick={handleChangeVisibility}
+              >
+                {visibilityLabel}
+              </button>
+              <button
+                type="button"
+                className="btn-xs btn-danger-xs"
+                disabled={isUpdating}
+                aria-label={`Xóa ${item.name}`}
+                onClick={() => onDelete(item._id)}
+              >
+                Xóa
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -371,6 +431,25 @@ function MyRentalsPage() {
     fetchMyRentals();
   }, [fetchMyRentals]);
 
+  const handleItemVisibility = async (item) => {
+    const willHide = item.status !== ItemStatus.DELISTED;
+
+    try {
+      const status = willHide ? ItemStatus.DELISTED : ItemStatus.AVAILABLE;
+      const { data: updatedItem } = await apiService.updateItem(item._id, { status });
+      setRentals((current) => ({
+        ...current,
+        myItems: current.myItems.map((entry) => entry._id === item._id
+          ? { ...entry, status: updatedItem.status, delistedByAdmin: updatedItem.delistedByAdmin }
+          : entry),
+      }));
+      Swal.fire(willHide ? 'Đã ẩn sản phẩm' : 'Đã hiện lại sản phẩm', '', 'success');
+    } catch (err) {
+      if ([403, 409].includes(err.response?.status)) await fetchMyRentals();
+      Swal.fire('Thất bại', err.response?.data?.message || 'Không thể cập nhật trạng thái sản phẩm.', 'error');
+    }
+  };
+
   const handleDeleteItem = async (itemId) => {
     const result = await Swal.fire({
       title: 'Xóa vật phẩm?',
@@ -475,6 +554,7 @@ function MyRentalsPage() {
                       item={item}
                       onEdit={(id) => navigate(`/edit-item/${id}`)}
                       onDelete={handleDeleteItem}
+                      onChangeVisibility={handleItemVisibility}
                     />
                   ))}
                 </div>

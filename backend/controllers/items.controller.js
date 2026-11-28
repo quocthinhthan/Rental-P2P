@@ -3,6 +3,7 @@ const Item = require('../models/Item.model');
 const Rental = require('../models/Rental.model');
 const ItemReport = require('../models/ItemReport.model');
 const mongoose = require('mongoose');
+const { ItemStatus } = require('../enums/item.enum');
 const { saveWithUniqueCode } = require('../utils/codeGenerator');
 const { getTrustLevelFromScore } = require('../services/trustScore.service');
 const { ACTIVE_BOOKING_STATUSES } = require('../services/itemAvailability.service');
@@ -13,6 +14,8 @@ const DEFAULT_MAP_SEARCH_LIMIT = 100;
 const MAX_MAP_SEARCH_LIMIT = 200;
 const MAX_SEARCH_TEXT_LENGTH = 100;
 const MAX_BESTSELLER_LIMIT = 10;
+const ADMIN_DELISTED_MESSAGE = 'Sản phẩm đã bị quản trị viên ẩn. Bạn chỉ có thể xem chi tiết.';
+const ITEM_CHANGED_MESSAGE = 'Sản phẩm đã thay đổi. Vui lòng tải lại trang và thử lại.';
 
 const clampNumber = (value, defaultValue, min, max) => {
   const parsed = parseInt(value, 10);
@@ -292,6 +295,10 @@ const checkOwner = async (req, res, next) => {
     const item = await Item.findById(req.params.id);
     if (!item) return res.status(404).json({ message: 'Item not found' });
     if (item.ownerId.toString() === req.user.id) {
+      if (item.delistedByAdmin) {
+        return res.status(403).json({ message: ADMIN_DELISTED_MESSAGE });
+      }
+      item.$where = { delistedByAdmin: { $ne: true } };
       req.item = item;
       next();
     } else {
@@ -307,12 +314,6 @@ const updateItem = async (req, res) => {
   const { name, description, category, pricePerDay, address, images, status, baseValue, depositPercentage, lat, lng } = req.body;
   const item = req.item;
 
-  if (item.delistedByAdmin) {
-    return res.status(403).json({
-      message: 'Sản phẩm đã bị quản trị viên gỡ/ẩn, bạn không thể chỉnh sửa hoặc mở lại. Vui lòng liên hệ hỗ trợ.'
-    });
-  }
-
   let nextLocation = null;
   if (lat !== undefined && lng !== undefined) {
     const coords = validateCoordinates(lat, lng);
@@ -325,7 +326,7 @@ const updateItem = async (req, res) => {
   }
 
   try {
-    if (status === 'delisted' && item.status !== 'delisted') {
+    if (status === ItemStatus.DELISTED && item.status !== ItemStatus.DELISTED) {
       const activeRental = await Rental.findOne({
         itemId: item._id,
         status: { $in: ACTIVE_BOOKING_STATUSES }
@@ -338,7 +339,7 @@ const updateItem = async (req, res) => {
       }
     }
 
-    if (status === 'available' && item.status === 'rented') {
+    if (status === ItemStatus.AVAILABLE && item.status === ItemStatus.RENTED) {
       const activeRental = await Rental.findOne({
         itemId: item._id,
         status: { $in: ACTIVE_BOOKING_STATUSES }
@@ -363,7 +364,10 @@ const updateItem = async (req, res) => {
   item.address = address ?? item.address;
   item.images = images ?? item.images;
 
-  if (status && ['available', 'delisted'].includes(status)) {
+  if (status === ItemStatus.AVAILABLE || status === ItemStatus.DELISTED) {
+    item.$where.status = item.status === ItemStatus.AVAILABLE
+      ? { $in: [ItemStatus.AVAILABLE, null] }
+      : item.status;
     item.status = status;
   }
 
@@ -375,6 +379,9 @@ const updateItem = async (req, res) => {
     const updatedItem = await item.save();
     res.status(200).json(updatedItem);
   } catch (error) {
+    if (error instanceof mongoose.Error.DocumentNotFoundError) {
+      return res.status(409).json({ message: ITEM_CHANGED_MESSAGE });
+    }
     res.status(400).json({ message: 'Bad request', error: error.message });
   }
 };
@@ -404,7 +411,10 @@ const deleteItem = async (req, res) => {
       });
     }
 
-    await Item.findByIdAndDelete(req.params.id);
+    const { deletedCount } = await req.item.deleteOne();
+    if (!deletedCount) {
+      return res.status(409).json({ message: ITEM_CHANGED_MESSAGE });
+    }
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -744,6 +754,9 @@ const addBlockedDates = async (req, res) => {
       blockedDates: item.blockedDates
     });
   } catch (error) {
+    if (error instanceof mongoose.Error.DocumentNotFoundError) {
+      return res.status(409).json({ message: ITEM_CHANGED_MESSAGE });
+    }
     console.error('[BLOCKED DATES] addBlockedDates error:', error);
     res.status(500).json({ message: 'Lỗi server khi thêm lịch chặn' });
   }
@@ -775,6 +788,9 @@ const removeBlockedDates = async (req, res) => {
       blockedDates: item.blockedDates
     });
   } catch (error) {
+    if (error instanceof mongoose.Error.DocumentNotFoundError) {
+      return res.status(409).json({ message: ITEM_CHANGED_MESSAGE });
+    }
     console.error('[BLOCKED DATES] removeBlockedDates error:', error);
     res.status(500).json({ message: 'Lỗi server khi xóa lịch chặn' });
   }

@@ -8,6 +8,7 @@ const MESSAGES = require('../constants/messages.constant');
 const { ItemStatus } = require('../enums/item.enum');
 const { RentalStatus, PaymentStatus } = require('../enums/rental.enum');
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const {
   getTrustLevelFromScore,
   toSafeUserTrustSummary
@@ -31,6 +32,25 @@ exports.getItemDetailView = async (req, res) => {
       return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
     }
 
+    let currentUser = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+        if (decoded?.id && !decoded.purpose) {
+          currentUser = await User.findById(decoded.id).select('favorites isBanned suspendedUntil');
+        }
+      } catch (_) {
+        // An invalid or expired token is treated as an anonymous request.
+      }
+    }
+
+    const isOwner = currentUser?._id.equals(item.ownerId?._id) &&
+      !currentUser.isBanned && !(currentUser.suspendedUntil > new Date());
+    if ((item.status === ItemStatus.DELISTED || item.delistedByAdmin) && !isOwner) {
+      return res.status(404).json({ message: MESSAGES.ITEM.NOT_FOUND });
+    }
+
     // Active rentals that block the calendar
     const today = toStartOfDay(new Date());
     const confirmedRentals = await Rental.find({
@@ -38,22 +58,6 @@ exports.getItemDetailView = async (req, res) => {
       status: { $in: ACTIVE_BOOKING_STATUSES },
       endDate: { $gte: today }
     }).select('startDate endDate');
-
-    // isFavorited — check only when caller is authenticated
-    let isFavorited = false;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
-        const currentUser = await User.findById(decoded.id).select('favorites');
-        if (currentUser) {
-          isFavorited = currentUser.favorites.some(id => id.equals(item._id));
-        }
-      } catch (_) {
-        // token invalid or expired — treat as unauthenticated, isFavorited stays false
-      }
-    }
 
     const hasMapLocation = (
       item.location &&
@@ -73,6 +77,7 @@ exports.getItemDetailView = async (req, res) => {
       description:       item.description,
       category:          item.category,
       status:            item.status,
+      delistedByAdmin:   Boolean(item.delistedByAdmin),
       isFeatured:        item.isFeatured,
       images:            item.images,
       pricePerDay:       item.pricePerDay,
@@ -89,7 +94,7 @@ exports.getItemDetailView = async (req, res) => {
       } : null,
       bookedDates:      confirmedRentals,
       blockedDates:     upcomingBlockedDates,
-      isFavorited
+      isFavorited:       currentUser?.favorites?.some(id => id.equals(item._id)) ?? false
     };
 
     res.status(200).json(viewData);
@@ -148,8 +153,8 @@ exports.getMyRentalsView = async (req, res) => {
       });
     
     // 3. Lấy các vật phẩm tôi đã đăng (myItems)
-    const myItems = await Item.find({ ownerId: userId, status: { $ne: ItemStatus.DELISTED } })
-      .select('code name pricePerDay category status images')
+    const myItems = await Item.find({ ownerId: userId })
+      .select('code name pricePerDay category status delistedByAdmin images')
       .sort({ createdAt: -1 });
 
     const rentalIds = [...asRenter, ...asOwner].map((rental) => rental._id);
@@ -330,6 +335,7 @@ exports.getMyRentalsView = async (req, res) => {
           pricePerDay: item.pricePerDay,
           category: item.category,
           status: item.status,
+          delistedByAdmin: Boolean(item.delistedByAdmin),
           mainImage: (item.images && item.images.length > 0) ? item.images[0] : ''
       }))
     });

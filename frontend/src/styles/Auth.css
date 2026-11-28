@@ -223,6 +223,45 @@
   margin-left: 6px;
 }
 
+.auth-password-field {
+  position: relative;
+}
+
+.auth-password-field .auth-input {
+  padding-inline-end: 56px;
+}
+
+.auth-password-field .auth-input::-ms-reveal {
+  display: none;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 4px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #475569;
+  z-index: 2;
+}
+
+.auth-password-toggle:hover,
+.auth-password-toggle[aria-pressed='true'] {
+  color: #1a6b4a;
+}
+
+.auth-password-toggle:focus-visible {
+  outline: 2px solid #1a6b4a;
+  outline-offset: -4px;
+}
+
 /* =========================================
    NÚT BẤM PHÁT SÁNG (GLOW BUTTON)
 ========================================= */

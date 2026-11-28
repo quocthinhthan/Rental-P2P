@@ -890,6 +890,7 @@ exports.updateItemStatus = async (req, res) => {
       item.delistedByAdmin = false;
       item.adminDelistReason = '';
     }
+    item.markModified('status');
     await item.save();
 
     await createAuditLog({
@@ -1039,8 +1040,9 @@ exports.resolveItemReport = async (req, res) => {
             activeRental
           });
         }
-        item.status = ItemStatus.DELISTED;
       }
+      item.status = ItemStatus.DELISTED;
+      item.markModified('status');
       item.delistedByAdmin = true;
       item.adminDelistReason = (typeof resolutionNote === 'string' && resolutionNote.trim())
         ? resolutionNote.trim().slice(0, 500)

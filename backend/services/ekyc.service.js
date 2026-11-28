@@ -315,25 +315,25 @@ const getDesktopUiPhase = (session) => {
       return { code: 'CAPTURING_DOCUMENTS', label: 'Đang chụp giấy tờ tùy thân' };
     case VerificationSessionStatus.DOCUMENT_PROCESSING:
       if (session.processingStage === ProcessingStage.OCR) {
-        return { code: 'EXTRACTING_OCR', label: 'Đang bóc tách thông tin' };
+        return { code: 'EXTRACTING_OCR', label: 'Đang xác minh thông tin' };
       }
-      return { code: 'CHECKING_DOCUMENTS', label: 'Đang kiểm tra giấy tờ' };
+      return { code: 'CHECKING_DOCUMENTS', label: 'Đang xác minh giấy tờ' };
     case VerificationSessionStatus.DOCUMENT_VERIFIED:
-      return { code: 'EXTRACTING_OCR', label: 'Đang chờ người dùng xác nhận thông tin CCCD' };
+      return { code: 'EXTRACTING_OCR', label: 'Đang chờ xác nhận thông tin CCCD' };
     case VerificationSessionStatus.DOCUMENT_CONFIRMED:
     case VerificationSessionStatus.LIVENESS_IN_PROGRESS:
       return {
         code: 'VERIFYING_LIVENESS',
-        label: `Đang kiểm tra thực thể sống (${passedPoses}/${totalPoses} tư thế)`
+        label: `Đang xác thực khuôn mặt (${passedPoses}/${totalPoses})`
       };
     case VerificationSessionStatus.LIVENESS_PROCESSING:
     case VerificationSessionStatus.FACE_PROCESSING:
       if (session.processingStage === ProcessingStage.FINALIZING) {
-        return { code: 'FINALIZING_RESULT', label: 'Đang xử lý kết quả' };
+        return { code: 'FINALIZING_RESULT', label: 'Đang hoàn tất xác minh' };
       }
       return {
         code: 'VERIFYING_LIVENESS',
-        label: `Đang kiểm tra thực thể sống (${Math.min(totalPoses, passedPoses + 1)}/${totalPoses})`
+        label: `Đang xác thực khuôn mặt (${Math.min(totalPoses, passedPoses + 1)}/${totalPoses})`
       };
     case VerificationSessionStatus.DOCUMENT_RETRY_REQUIRED:
     case VerificationSessionStatus.LIVENESS_RETRY_REQUIRED:
@@ -1487,7 +1487,7 @@ const createEkycService = ({
       || active.livenessChallenges.length !== ALL_LIVENESS_POSES.length
     ) {
       throw new EkycDomainError(
-        'Không thể kiểm tra thực thể sống khi chưa hoàn tất kiểm tra và xác nhận thông tin CCCD.',
+        'Không thể xác thực khuôn mặt khi chưa hoàn tất kiểm tra và xác nhận thông tin CCCD.',
         { statusCode: 409, code: 'STEP_PREREQUISITE_NOT_MET' }
       );
     }
@@ -1514,7 +1514,7 @@ const createEkycService = ({
             usedLivenessImageHashes: [],
             livenessResults: createEmptyLivenessResults(),
             failureCode: 'LIVENESS_CONTINUITY_LOST',
-            failureReason: 'Quá trình xác thực khuôn mặt bị gián đoạn quá lâu. Hệ thống đã tạo mới chuỗi 5 tư thế (kết quả CCCD trước đó vẫn được giữ nguyên).'
+            failureReason: 'Quá trình xác thực khuôn mặt bị gián đoạn quá lâu. Vui lòng thực hiện lại từ đầu bước xác thực khuôn mặt (kết quả CCCD trước đó vẫn được giữ nguyên).'
           }
         },
         { new: true }
@@ -1538,7 +1538,7 @@ const createEkycService = ({
     const expectedPose = active.livenessChallenges[active.currentPoseIndex];
     if (cleanPose !== expectedPose) {
       throw new EkycDomainError(
-        `Thứ tự tư thế không khớp. Tư thế cần thực hiện hiện tại là "${POSE_LABELS_VI[expectedPose] || expectedPose}" (${expectedPose}).`,
+        `Thứ tự bước xác thực không khớp. Vui lòng thực hiện tư thế "${POSE_LABELS_VI[expectedPose] || expectedPose}".`,
         {
           statusCode: 409,
           code: 'INVALID_LIVENESS_POSE_ORDER',
@@ -1557,7 +1557,7 @@ const createEkycService = ({
             processingStage: ProcessingStage.IDLE,
             currentStep: EkycStep.RESULT,
             failureCode: 'MAX_LIVENESS_ATTEMPTS_EXCEEDED',
-            failureReason: 'Bạn đã vượt quá số lần thử lại thực thể sống cho phép. Vui lòng tạo phiên mới hoặc liên hệ bộ phận hỗ trợ.'
+            failureReason: 'Bạn đã vượt quá số lần thử lại xác thực khuôn mặt cho phép. Vui lòng tạo phiên mới hoặc liên hệ bộ phận hỗ trợ.'
           }
         },
         { new: true }

@@ -847,24 +847,23 @@ export default function AdminUsersPage() {
                           {userDetail.ekycProfile ? (
                             <div className="p-3 rounded border bg-light small">
                               <div className="mb-1">
-                                <strong>Phương thức:</strong> {userDetail.ekycProfile.verificationMethod}
+                                <strong>Giấy tờ CCCD:</strong>{' '}
+                                {userDetail.ekycProfile.documentSpoofCheckPassed || userDetail.ekycProfile.spoofCheckPassed
+                                  ? 'Hợp lệ'
+                                  : 'Chưa xác nhận'}
                               </div>
                               <div className="mb-1">
-                                <strong>Liveness Detection:</strong>{' '}
-                                {userDetail.ekycProfile.livenessVerified ? 'Đạt (Đủ 5 tư thế)' : 'Không áp dụng'}
-                              </div>
-                              <div className="mb-1">
-                                <strong>Đối sánh khuôn mặt CCCD:</strong>{' '}
-                                {userDetail.ekycProfile.faceMatchingVerified === true || userDetail.ekycProfile.faceMatchVerified === true
-                                  ? 'Đã đối sánh (Lịch sử)'
-                                  : 'Không thực hiện (Quy trình Liveness MVP)'}
+                                <strong>Xác thực khuôn mặt:</strong>{' '}
+                                {userDetail.ekycProfile.livenessVerified || userDetail.ekycProfile.faceMatchingVerified || userDetail.ekycProfile.faceMatchVerified
+                                  ? 'Đã xác thực'
+                                  : 'Chưa xác thực'}
                               </div>
                               <div className="mb-1">
                                 <strong>Hiệu lực CCCD:</strong> {userDetail.ekycProfile.expiryRaw || 'N/A'}
                               </div>
                               <div className="text-muted mt-2">
-                                <i className="fas fa-info-circle me-1" />
-                                Quy trình MVP kiểm tra giấy tờ &amp; thực thể sống, không đối chiếu CSDL dân cư quốc gia.
+                                <i className="fas fa-shield-alt me-1 text-success" />
+                                Thông tin định danh được mã hóa bảo mật theo tiêu chuẩn hệ thống.
                               </div>
                             </div>
                           ) : (
