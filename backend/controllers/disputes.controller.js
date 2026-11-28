@@ -4,19 +4,119 @@ const Dispute = require('../models/Dispute.model');
 const Rental = require('../models/Rental.model');
 const Item = require('../models/Item.model');
 const User = require('../models/User.model');
+const AuditLog = require('../models/AuditLog.model');
 const { RentalStatus, PaymentStatus } = require('../enums/rental.enum');
 const { DisputeStatus, PenaltyType, DisputeWinner } = require('../enums/dispute.enum');
 const { ItemStatus } = require('../enums/item.enum');
-const { recalculateUserTrustScore } = require('../services/trustScore.service');
+const trustScoreService = require('../services/trustScore.service');
 
 const MEDIATION_WINDOW_HOURS = 48;
 const SUSPENSION_DAYS = 7;
 const COMPLETED_DISPUTE_WINDOW_DAYS = 7;
 const ACTIVE_DISPUTE_STATUSES = [DisputeStatus.PENDING, DisputeStatus.ESCALATED];
+const TRANSACTION_UNSUPPORTED_REGEX = /Transaction numbers are only allowed|replica set member|Transaction.*not supported/i;
+const CONFLICT_MESSAGE = 'Tranh chấp đã thay đổi trạng thái trước đó, vui lòng tải lại.';
 const BASE_DISPUTABLE_RENTAL_STATUSES = [
   RentalStatus.CONFIRMED,
   RentalStatus.IN_PROGRESS
 ];
+
+class DisputeConflictError extends Error {
+  constructor(message = CONFLICT_MESSAGE) {
+    super(message);
+    this.name = 'DisputeConflictError';
+  }
+}
+
+const withOptionalSession = (query, session) => (
+  session && query && typeof query.session === 'function'
+    ? query.session(session)
+    : query
+);
+
+const runWithOptionalTransaction = async (work) => {
+  const session = await mongoose.startSession();
+  let result;
+
+  try {
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } catch (error) {
+    if (error instanceof DisputeConflictError || !TRANSACTION_UNSUPPORTED_REGEX.test(error?.message || '')) {
+      throw error;
+    }
+
+    return work(null);
+  } finally {
+    await session.endSession();
+  }
+};
+
+const syncItemStatusAfterDispute = async (itemId, { session = null } = {}) => {
+  try {
+    const itemAvailabilityService = require('../services/itemAvailability.service');
+    if (itemAvailabilityService && typeof itemAvailabilityService.syncItemRuntimeStatus === 'function') {
+      return itemAvailabilityService.syncItemRuntimeStatus(itemId, { session });
+    }
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') {
+      throw error;
+    }
+  }
+
+  let itemQuery = Item.findById(itemId);
+  if (itemQuery && typeof itemQuery.select === 'function') {
+    itemQuery = itemQuery.select('_id status delistedByAdmin');
+  }
+  const item = await withOptionalSession(itemQuery, session);
+
+  if (!item || item.status === ItemStatus.DELISTED || item.delistedByAdmin) {
+    return item;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  let rentalQuery = Rental.findOne({
+    itemId,
+    status: { $in: [RentalStatus.CONFIRMED, RentalStatus.IN_PROGRESS, RentalStatus.DISPUTED] },
+    startDate: { $lt: tomorrow },
+    endDate: { $gte: today }
+  });
+  if (rentalQuery && typeof rentalQuery.select === 'function') {
+    rentalQuery = rentalQuery.select('_id');
+  }
+  const currentRental = await withOptionalSession(rentalQuery, session);
+
+  const nextStatus = currentRental ? ItemStatus.RENTED : ItemStatus.AVAILABLE;
+  if (item.status !== nextStatus) {
+    item.status = nextStatus;
+    await item.save(session ? { session } : undefined);
+  }
+
+  return item;
+};
+
+const writeDisputeAuditLog = async ({ req, dispute, before, after, reason, metadata = {} }) => {
+  try {
+    await AuditLog.create({
+      actorId: req.user._id,
+      action: 'admin.dispute.resolve',
+      targetType: 'Dispute',
+      targetId: dispute._id,
+      before,
+      after,
+      reason,
+      metadata
+    });
+  } catch (error) {
+    console.error('[DisputeAuditLog] Failed to create audit log:', error);
+  }
+};
 
 const isRentalParty = (rental, userId) => (
   rental.renterId.equals(userId) || rental.ownerId.equals(userId)
@@ -73,7 +173,7 @@ const getRestoreStatuses = (dispute, rental) => {
   };
 };
 
-const applyPenalty = async (userToPenalize, penaltyType) => {
+const applyPenalty = async (userToPenalize, penaltyType, { session = null } = {}) => {
   if (penaltyType === PenaltyType.NONE) {
     return null;
   }
@@ -98,7 +198,7 @@ const applyPenalty = async (userToPenalize, penaltyType) => {
       break;
   }
 
-  await userToPenalize.save();
+  await userToPenalize.save(session ? { session } : undefined);
   return userToPenalize;
 };
 
@@ -277,14 +377,27 @@ exports.escalateDispute = async (req, res) => {
       });
     }
 
-    dispute.status = DisputeStatus.ESCALATED;
-    dispute.escalatedAt = now;
-    dispute.escalatedBy = req.user._id;
-    await dispute.save();
+    const updatedDispute = await Dispute.findOneAndUpdate(
+      { _id: dispute._id, status: DisputeStatus.PENDING },
+      {
+        $set: {
+          status: DisputeStatus.ESCALATED,
+          escalatedAt: now,
+          escalatedBy: req.user._id
+        }
+      },
+      { new: true }
+    );
+
+    if (!updatedDispute) {
+      return res.status(409).json({
+        message: CONFLICT_MESSAGE
+      });
+    }
 
     res.status(200).json({
       message: 'Đã chuyển tranh chấp lên admin. Admin sẽ xem xét và đưa ra phán quyết.',
-      dispute
+      dispute: updatedDispute
     });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi máy chủ', error: error.message });
@@ -358,11 +471,18 @@ exports.resolveDispute = async (req, res) => {
       }
     }
 
+    const before = {
+      disputeStatus: dispute.status,
+      rentalStatus: rental.status,
+      paymentStatus: rental.paymentStatus,
+      itemStatus: item.status,
+      itemDelistedByAdmin: Boolean(item.delistedByAdmin)
+    };
+
     const rentalUpdate = {};
-    let itemStatus = ItemStatus.AVAILABLE;
 
     if (winner === DisputeWinner.RENTER) {
-      if (PaymentStatus.REFUNDED) {
+      if (rental.paymentStatus === PaymentStatus.ESCROWED) {
         rentalUpdate.paymentStatus = PaymentStatus.REFUNDED;
       }
 
@@ -373,26 +493,44 @@ exports.resolveDispute = async (req, res) => {
     } else if (winner === DisputeWinner.OWNER) {
       rentalUpdate.status = RentalStatus.COMPLETED;
     } else {
-      const restored = getRestoreStatuses(dispute, rental);
-      rentalUpdate.status = restored.rentalStatus;
-      itemStatus = restored.itemStatus;
+      rentalUpdate.status = getRestoreStatuses(dispute, rental).rentalStatus;
     }
 
-    await Rental.findByIdAndUpdate(rental._id, rentalUpdate);
-    await Item.findByIdAndUpdate(item._id, { status: itemStatus });
+    const { resolvedDispute, syncedItem } = await runWithOptionalTransaction(async (session) => {
+      const claimedDispute = await Dispute.findOneAndUpdate(
+        { _id: dispute._id, status: { $in: ACTIVE_DISPUTE_STATUSES } },
+        {
+          $set: {
+            status: DisputeStatus.RESOLVED,
+            adminDecision,
+            winner,
+            penalizeUserId: penaltyType === PenaltyType.NONE ? null : penalizeUserId,
+            penaltyType,
+            resolvedBy: req.user._id,
+            resolvedAt: new Date()
+          }
+        },
+        { new: true, ...(session ? { session } : {}) }
+      );
 
-    if (penaltyType !== PenaltyType.NONE) {
-      await applyPenalty(userToPenalize, penaltyType);
-    }
+      if (!claimedDispute) {
+        throw new DisputeConflictError(CONFLICT_MESSAGE);
+      }
 
-    dispute.status = DisputeStatus.RESOLVED;
-    dispute.adminDecision = adminDecision;
-    dispute.winner = winner;
-    dispute.penalizeUserId = penaltyType === PenaltyType.NONE ? null : penalizeUserId;
-    dispute.penaltyType = penaltyType;
-    dispute.resolvedBy = req.user._id;
-    dispute.resolvedAt = new Date();
-    await dispute.save();
+      await Rental.findByIdAndUpdate(
+        rental._id,
+        rentalUpdate,
+        session ? { session } : undefined
+      );
+
+      const updatedItem = await syncItemStatusAfterDispute(item._id, { session });
+
+      if (penaltyType !== PenaltyType.NONE) {
+        await applyPenalty(userToPenalize, penaltyType, { session });
+      }
+
+      return { resolvedDispute: claimedDispute, syncedItem: updatedItem };
+    });
 
     const usersToRecalculate = new Set([
       rental.renterId.toString(),
@@ -404,11 +542,37 @@ exports.resolveDispute = async (req, res) => {
     }
 
     await Promise.all(
-      Array.from(usersToRecalculate).map((userId) => recalculateUserTrustScore(userId))
+      Array.from(usersToRecalculate).map((userId) => trustScoreService.recalculateUserTrustScore(userId))
     );
 
-    res.status(200).json({ message: 'Đã giải quyết xong tranh chấp', dispute });
+    const after = {
+      disputeStatus: resolvedDispute.status,
+      rentalStatus: rentalUpdate.status,
+      paymentStatus: rentalUpdate.paymentStatus || rental.paymentStatus,
+      itemStatus: syncedItem?.status || item.status,
+      itemDelistedByAdmin: Boolean(syncedItem?.delistedByAdmin ?? item.delistedByAdmin)
+    };
+
+    await writeDisputeAuditLog({
+      req,
+      dispute: resolvedDispute,
+      before,
+      after,
+      reason: adminDecision,
+      metadata: {
+        rentalId: rental._id,
+        itemId: item._id,
+        winner,
+        penaltyType,
+        penalizeUserId: penaltyType === PenaltyType.NONE ? null : penalizeUserId
+      }
+    });
+
+    res.status(200).json({ message: 'Đã giải quyết xong tranh chấp', dispute: resolvedDispute });
   } catch (error) {
+    if (error instanceof DisputeConflictError) {
+      return res.status(409).json({ message: error.message });
+    }
     res.status(500).json({ message: 'Lỗi máy chủ', error: error.message });
   }
 };
@@ -446,23 +610,48 @@ exports.withdrawDispute = async (req, res) => {
     const restored = getRestoreStatuses(dispute, rental);
 
     // Rút khiếu nại phải đưa rental/item thoát DISPUTED theo snapshot đã lưu.
-    dispute.status = DisputeStatus.WITHDRAWN;
-    dispute.adminDecision = 'Người khiếu nại đã rút đơn, giao dịch được khôi phục trạng thái trước khi có tranh chấp.';
-    await dispute.save();
+    const { updatedDispute, syncedItem } = await runWithOptionalTransaction(async (session) => {
+      const claimedDispute = await Dispute.findOneAndUpdate(
+        { _id: dispute._id, status: { $in: ACTIVE_DISPUTE_STATUSES } },
+        {
+          $set: {
+            status: DisputeStatus.WITHDRAWN,
+            adminDecision: 'Người khiếu nại đã rút đơn, giao dịch được khôi phục trạng thái trước khi có tranh chấp.'
+          }
+        },
+        { new: true, ...(session ? { session } : {}) }
+      );
 
-    await Rental.findByIdAndUpdate(rental._id, { status: restored.rentalStatus });
-    await Item.findByIdAndUpdate(item._id, { status: restored.itemStatus });
+      if (!claimedDispute) {
+        throw new DisputeConflictError(CONFLICT_MESSAGE);
+      }
+
+      await Rental.findByIdAndUpdate(
+        rental._id,
+        { status: restored.rentalStatus },
+        session ? { session } : undefined
+      );
+
+      const updatedItem = await syncItemStatusAfterDispute(item._id, { session });
+
+      return { updatedDispute: claimedDispute, syncedItem: updatedItem };
+    });
 
     await Promise.all([
-      recalculateUserTrustScore(rental.renterId),
-      recalculateUserTrustScore(rental.ownerId)
+      trustScoreService.recalculateUserTrustScore(rental.renterId),
+      trustScoreService.recalculateUserTrustScore(rental.ownerId)
     ]);
 
+    const finalItemStatus = syncedItem?.status || item.status;
+
     res.status(200).json({
-      message: `Đã rút khiếu nại. Trạng thái đơn thuê: ${restored.rentalStatus}, trạng thái item: ${restored.itemStatus}`,
-      dispute
+      message: `Đã rút khiếu nại. Trạng thái đơn thuê: ${restored.rentalStatus}, trạng thái item: ${finalItemStatus}`,
+      dispute: updatedDispute
     });
   } catch (error) {
+    if (error instanceof DisputeConflictError) {
+      return res.status(409).json({ message: error.message });
+    }
     res.status(500).json({ message: 'Lỗi máy chủ', error: error.message });
   }
 };
