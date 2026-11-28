@@ -301,21 +301,17 @@ const createInMemoryEkycStore = () => {
     },
     hiddenPaths: ['idNumberHmac', 'idNumberEncrypted'],
     beforeWrite: (candidate, rows, existingId) => {
-      if (candidate.isActive && candidate.idNumberHmac) {
-        const dup = rows.find(
-          (r) =>
-            r.isActive
-            && r.idNumberHmac === candidate.idNumberHmac
-            && String(r._id) !== String(existingId || '')
-        );
-        if (dup) {
-          const err = new Error('E11000 duplicate key error collection: identityprofiles index: idNumberHmac_1');
+      for (const field of ['userId', 'idNumberHmac']) {
+        if (candidate[field] && rows.some((r) => r[field] === candidate[field] && r._id !== existingId)) {
+          const err = new Error('E11000 duplicate key error collection: identityprofiles');
           err.code = 11000;
+          err.keyPattern = { [field]: 1 };
           throw err;
         }
       }
     }
   });
+  IdentityProfile.createIndexes = async () => {};
 
   const VerificationSession = createCollection({
     defaults: {

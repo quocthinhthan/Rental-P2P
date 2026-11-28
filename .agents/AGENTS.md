@@ -117,7 +117,7 @@ Rentals can be cancelled before pickup proof is recorded, subject to role and st
 - Pickup is allowed only after the contract is fully signed.
 - Pickup requires `pickupImages`. Both pickup and complete optionally accept `condition`, `accessories`, `notes` (and `damages` for complete) to populate `pickupReport`/`returnReport`. Saving pickup/complete does NOT advance rental status — it waits for the counterpart to call `approve-pickup`/`approve-return`.
 - `approve-pickup` and `approve-return` can optionally accept edited report fields (`condition`, `accessories`, `notes`, `damages`, `pickupImages`/`returnImages`) to let the reviewer override the original entry before confirming. Advancing rental status only happens on these approve calls.
-- Completion requires `returnImages`.
+- Only rental participants can record or approve handover. Each report is recorded once. Report photos must use valid Cloudinary URLs. eKYC gates pickup recording. Return and approvals remain available after expiry.
 - Booking availability is date-range based (`backend/services/itemAvailability.service.js`). `Item.status = rented` is not a global lock; `createRentalRequest` blocks past `startDate`, and booking/VNPay/confirm/search/blocked-dates/calendar all check `blockedDates` and `ACTIVE_BOOKING_STATUSES` (`pending_confirmation`, `confirmed`, `in_progress`, `disputed`). `approvePickup`, `approveReturn`, `resolveDispute`, and `withdrawDispute` call `syncItemRuntimeStatus`.
 - Admin item governance: `Item.delistedByAdmin` blocks owner `PUT /api/items/:id` (`403`); `DELETE /api/items/:id` blocks hard delete if any active or historical rental exists (`400`); `resolveItemReport` (`no_action`/`warn_owner`) never auto-relists; `resolveDispute` uses atomic `409` status guards and logs `admin.dispute.resolve` to `AuditLog`.
 - Backend authorization rules decide which user can perform each action.
@@ -183,6 +183,7 @@ When touching these APIs from the frontend:
 - TrustScore is a 0-100 reliability/risk score, not review stars. Keep review aggregates in `averageRating` and `totalReviews`, derive `trustLevel` from `trustScore`, and use `backend/services/trustScore.service.js` for recalculation.
 - Do not directly add/subtract `trustScore` in controllers. Persist source events such as public reviews, completed rentals, resolved disputes, item report actions, eKYC changes, or admin account status changes, then call `recalculateUserTrustScore`.
 - Public user summaries should avoid sensitive fields. `GET /api/users/:id/profile` returns safe profile, trust/rating fields, public reviews, and public owner items.
+- CCCD stays bound to its account through `IdentityProfile.idNumberHmac`, including after ban or eKYC revocation.
 
 ## Description Formatting & Security
 

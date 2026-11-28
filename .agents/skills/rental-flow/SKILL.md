@@ -17,6 +17,9 @@ Use this skill when changing frontend rental lifecycle UI. The current rental de
 Handover (step 4) is now **two-phase**:
 - Recorder calls `pickup` / `complete` → saves report, status unchanged.
 - Counterpart reviews in `HandoverModal` and calls `approve-pickup` / `approve-return` → status advances.
+- Only rental participants can record or approve. The first record for each report is saved atomically, and only the counterpart can approve.
+- Recording and optional approval replacements require at least one valid Cloudinary image. An empty text value clears an optional report field.
+- Recording pickup requires valid eKYC. Recording a return and both approvals are available to eligible rental participants after eKYC expires.
 
 While the first party has recorded but the counterpart has not yet approved, treat the handover step as *active* (not yet completed).
 

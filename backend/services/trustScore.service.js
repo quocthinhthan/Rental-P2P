@@ -79,23 +79,13 @@ const getDisputePenalty = async (userId) => {
   const resolvedPenalties = await Dispute.find({
     status: DisputeStatus.RESOLVED,
     penalizeUserId: userId,
-    penaltyType: { $ne: PenaltyType.NONE }
+    penaltyType: { $in: [PenaltyType.WARNING, PenaltyType.SUSPENSION] }
   }).select('penaltyType');
 
-  return resolvedPenalties.reduce((result, dispute) => {
-    if (dispute.penaltyType === PenaltyType.BAN) {
-      result.hasBanPenalty = true;
-      return result;
-    }
-    if (dispute.penaltyType === PenaltyType.SUSPENSION) {
-      result.penalty += 30;
-      return result;
-    }
-    if (dispute.penaltyType === PenaltyType.WARNING) {
-      result.penalty += 15;
-    }
-    return result;
-  }, { penalty: 0, hasBanPenalty: false });
+  // Account status controls the ban override. Historical bans remain in the dispute record.
+  return resolvedPenalties.reduce((penalty, dispute) => (
+    penalty + (dispute.penaltyType === PenaltyType.SUSPENSION ? 30 : 15)
+  ), 0);
 };
 
 const getItemReportPenalty = async (userId) => {
@@ -146,7 +136,7 @@ const calculateUserTrustScore = async (userId) => {
     getItemReportPenalty(objectId)
   ]);
 
-  if (user.isBanned || disputePenalty.hasBanPenalty) {
+  if (user.isBanned) {
     return {
       trustScore: 0,
       trustLevel: getTrustLevelFromScore(0),
@@ -160,7 +150,7 @@ const calculateUserTrustScore = async (userId) => {
     + getEkycScore(user.ekycStatus)
     + completedRentalScore
     + getReviewScore(ratingSummary.averageRating, ratingSummary.totalReviews)
-    - disputePenalty.penalty
+    - disputePenalty
     - itemReportPenalty;
 
   if (user.suspendedUntil && new Date() < new Date(user.suspendedUntil)) {

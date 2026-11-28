@@ -20,7 +20,7 @@
 | Role | Description | Key Capabilities (Observed in Code) |
 |---|---|---|
 | **Guest** (Unauthenticated) | Public visitor | Browse home/shop, search items (text/category/dates/location radius), view item detail + availability calendar + owner trust summary + reviews, view public user profile, trigger forgot/reset password. |
-| **Registered Member** (`role: 'user'`, unverified eKYC) | Authenticated user without eKYC | Update profile & bank account, submit eKYC (`POST /api/auth/verify-ekyc`), manage favorites (max 100), see the owner's phone number on an item listing with an active account, report items (`POST /api/items/:id/report`), use AI price suggestion, view financial stats, view/chat on own rentals, raise/withdraw/escalate disputes, submit reviews, pay/cancel own `pending_payment` rental. |
+| **Registered Member** (`role: 'user'`, unverified eKYC) | Authenticated user without eKYC | Update profile & bank account, start eKYC (`POST /api/ekyc/sessions`), manage favorites (max 100), see the owner's phone number on an item listing with an active account, report items (`POST /api/items/:id/report`), use AI price suggestion, view financial stats, view/chat on own rentals, raise/withdraw/escalate disputes, submit reviews, pay/cancel own `pending_payment` rental. |
 | **Verified Member** (`ekycStatus === 'verified'`) | Identity-verified Renter &/or Owner | All Member actions **plus** gated by `checkVerified`: create items (`POST /api/items`), create rental requests (`POST /api/rentals`), sign contracts (`POST /api/rentals/:id/sign-contract`), record pickup (`PATCH /api/rentals/:id/pickup`). *(Note: `confirmRental` also checks both owner & renter `ekycStatus === 'verified'`.)* |
 | **Item Owner** (contextual per item/rental) | User whose `_id === item.ownerId` / `rental.ownerId` | Edit/delist/delete own item, manage `blockedDates`, confirm/reject `pending_confirmation` rentals, cancel `confirmed` rental before pickup, approve pickup/return handover reports. |
 | **Renter** (contextual per rental) | User whose `_id === rental.renterId` | Pay via VNPay, cancel before pickup proof, initiate pickup/return handover reports or approve counterpart's report. |
@@ -60,7 +60,7 @@
 
 ### 3.5. `Review` & `TrustScore`
 - **Reviews (`Review.model.js`):** Double-blind per `(rentalId, reviewerId)` on `completed` rentals within seven days of `completedAt`. Older records use `returnReport.approvedAt` or `endDate`. Reviews are hidden until the counterpart submits or seven days pass after the review was submitted (published in `getUserReviews` / `getItemReviews`).
-- **TrustScore (`trustScore.service.js`):** `0–100` reliability score (`base 50 + eKYC [+20/-10/0] + completedRentals [2 each, max +20] + reviewScore [+10 to -10] - disputePenalties - itemReportPenalties`, clamped `[0, 100]`, capped `<= 40` while suspended, `0` if banned).
+- **TrustScore (`trustScore.service.js`):** `0–100` reliability score (`base 50 + eKYC [+20/-10/0] + completedRentals [2 each, max +20] + reviewScore [+10 to -10] - disputePenalties - itemReportPenalties`). An active ban forces `0`. Unban restores the calculated score, capped at `40` during an active suspension.
 
 ### 3.6. `ItemReport` & `AuditLog`
 - `ItemReport`: `pending` -> `resolved` with `action` (`no_action`, `warn_owner` [-10], `hide_item` [-15 + delist], `delist_item` [-15 + delist], `ban_item` [-25 + delist]). One report per `(itemId, reporterId)` enforced in controller.
@@ -74,7 +74,7 @@
 
 ### 4.1. IMPLEMENTED
 - User registration, JWT login (with ban/suspension check), logout, `GET /api/auth/me`, profile update, forgot/reset password via RabbitMQ + SMTP worker (`auth.controller.js`, `worker.js`).
-- eKYC verification via FPT.AI CCCD OCR (`verify-ekyc`) + identity-field lock after verification (`auth.controller.js:51-64`).
+- Viettel AI eKYC uses QR/direct sessions, spoof check, two-sided CCCD OCR and five-pose liveness. Successful verification saves `IdentityProfile` and updates `User`. Each CCCD remains bound to its account after ban or revocation. Expiry and Admin requests allow re-verification with the same number. See `docs/EKYC_VIETTEL_AI.md`.
 - Item CRUD, Vietnamese accent-insensitive search, GeoJSON 2dsphere `$geoNear` radius search + Leaflet map pickers, categories, bestsellers, CKEditor rich description + XSS sanitizer (`items.controller.js`, `PostItemPage.jsx`, `ShopPage.jsx`).
 - Owner `blockedDates` add/remove (`items.controller.js`, `ItemDetailPage.jsx`).
 - Favorites / Wishlist up to 100 items (`favorites.controller.js`, `FavoritesPage.jsx`).
@@ -95,7 +95,7 @@
 - **Overdue, Late Fee & Rental Extension:** `getRentalDetail` and `getMyRentalsView` return `actualReturnDate`, `overdueDays`, `lateFeeAmount` (and `extensionRequest` in `views.controller.js:284`), **but** these fields do not exist on `Rental.model.js` and no endpoint/logic calculates late fees or processes rental extensions.
 - **Availability Calendar vs Booking Enforcement:** Search (`items.controller.js`) and calendar view (`views.controller.js`) check `blockedDates` and `['pending_confirmation', 'confirmed', 'in_progress']` (missing `disputed`), whereas booking/payment/confirmation (`rentals.controller.js`) check `['pending_confirmation', 'confirmed', 'in_progress', 'disputed']` and **ignore `blockedDates`**.
 - **Notification Worker Email Templates:** `rental_status_changed` only populates email body for `confirmed` and `rejected`; calls from `cancelRental` (`cancelled`), `approvePickup` (`in_progress`), and `approveReturn` (`completed`) trigger emails with blank `message` and generic title `"📢 Cập nhật đơn thuê"`.
-- **Admin Audit Trail Completeness:** `AdminUsersPage.jsx` filter lists `admin.dispute.resolve` and `admin.user.update_ekyc`; `resolveDispute` now logs `admin.dispute.resolve`, while no admin eKYC override endpoint exists for `admin.user.update_ekyc`.
+- **Admin Audit Trail:** Dispute resolution logs `admin.dispute.resolve`. The Admin re-verification endpoint `PATCH /api/admin/users/:id/require-ekyc` revokes verification and logs `admin.user.update_ekyc`.
 - **Frontend Role Guard & i18n:** `/admin/*` routes use `<ProtectedRoute />` which checks `isLoggedIn` only (not `user.role === 'admin'`); `vi.json` omits `rental.status.disputed` and most JSX pages use hardcoded Vietnamese strings.
 - **AI Price Suggestion without Gemini Key:** `items.controller.js:560` averages `ruleBasedPrice` with `aiSuggestedPrice` (initialized `null`), halving suggested price when `GEMINI_API_KEY` is absent.
 - **Auth Edge/Origin Rate Limiting & Edge HSTS (`docs/INFRASTRUCTURE.md` §1.1, §7.3, §12):** `POST /api/auth/register` lacks a dedicated backend limiter (uses general `apiLimiter` 300/15m); Cloudflare Auth Rate Limiting HTTP 429 behavior and Cloudflare Edge HSTS remain `TODO` (`nginx/nginx.tunnel.conf` serves HTTP `:80` behind Tunnel without HSTS).

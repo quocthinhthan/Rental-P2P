@@ -191,6 +191,8 @@ paths:
           description: Đã tạo phiên xác minh mới
         '409':
           description: Tài khoản đã xác minh danh tính hợp lệ
+        '503':
+          description: Ràng buộc duy nhất của hồ sơ CCCD đang tạm thời gián đoạn
 
   /ekyc/sessions/claim:
     post:
@@ -283,6 +285,8 @@ paths:
       responses:
         '200':
           description: Kiểm tra giấy tờ và bóc tách OCR thành công
+        '409':
+          description: CCCD thuộc tài khoản khác hoặc khác với số đã liên kết của tài khoản hiện tại
         '422':
           description: Giấy tờ không hợp lệ, hết hạn hoặc không đọc được OCR
 
@@ -340,9 +344,11 @@ paths:
         '200':
           description: Tư thế hiện tại đạt yêu cầu (hoặc hoàn tất 5/5 tư thế)
         '409':
-          description: Sai thứ tự tư thế hoặc gián đoạn tính liên tục của phiên
+          description: Sai thứ tự tư thế, gián đoạn phiên hoặc có xung đột liên kết CCCD
         '422':
           description: Tư thế chưa đạt yêu cầu thực thể sống
+        '503':
+          description: Dịch vụ thực thể sống hoặc ràng buộc duy nhất của hồ sơ CCCD đang tạm thời gián đoạn
 
   /ekyc/sessions/{sessionId}/face:
     post:
@@ -858,8 +864,8 @@ paths:
     patch:
       tags:
         - Rentals
-      summary: Xác nhận giao/nhận đồ (Chuyển sang in_progress)
-      description: Bắt buộc cả 2 bên phải ký hợp đồng xong mới gọi được API này. Bắt buộc kèm ảnh chụp lúc giao đồ.
+      summary: Lập biên bản giao nhận
+      description: Người thuê hoặc chủ đồ có eKYC còn hiệu lực có thể lập biên bản một lần khi đơn đã xác nhận và hai bên đã ký hợp đồng. Đơn giữ trạng thái confirmed cho đến khi bên còn lại duyệt.
       security:
         - bearerAuth: []
       parameters:
@@ -874,22 +880,28 @@ paths:
           application/json:
             schema:
               type: object
+              required: [pickupImages]
               properties:
                 pickupImages:
                   type: array
+                  minItems: 1
                   items:
                     type: string
-                  description: Mảng chứa URL ảnh chụp lúc giao nhận đồ
+                  description: URL ảnh Cloudinary lúc giao nhận đồ
       responses:
         '200':
-          description: Đã xác nhận giao đồ thành công
+          description: Đã lưu biên bản giao nhận và chờ duyệt
+        '403':
+          description: Người gọi không thuộc đơn thuê hoặc eKYC không còn hiệu lực
+        '409':
+          description: Biên bản đã được lập hoặc trạng thái đơn thuê vừa thay đổi
 
   /rentals/{id}/complete:
     patch:
       tags:
         - Rentals
-      summary: Hoàn thành đơn và Trả đồ (Chuyển sang completed)
-      description: Đơn phải đang ở trạng thái in_progress. Bắt buộc kèm ảnh chụp lúc trả đồ.
+      summary: Lập biên bản trả đồ
+      description: Người thuê hoặc chủ đồ có thể lập biên bản một lần khi đơn đang thuê, kể cả khi eKYC hết hạn. Đơn giữ trạng thái in_progress cho đến khi bên còn lại duyệt.
       security:
         - bearerAuth: []
       parameters:
@@ -904,15 +916,68 @@ paths:
           application/json:
             schema:
               type: object
+              required: [returnImages]
               properties:
                 returnImages:
                   type: array
+                  minItems: 1
                   items:
                     type: string
-                  description: Mảng chứa URL ảnh chụp lúc trả đồ
+                  description: URL ảnh Cloudinary lúc trả đồ
       responses:
         '200':
-          description: Trả đồ và hoàn thành đơn thành công
+          description: Đã lưu biên bản trả đồ và chờ duyệt
+        '403':
+          description: Người gọi không thuộc đơn thuê
+        '409':
+          description: Biên bản đã được lập hoặc trạng thái đơn thuê vừa thay đổi
+
+  /rentals/{id}/approve-pickup:
+    patch:
+      tags: [Rentals]
+      summary: Duyệt biên bản giao nhận và chuyển sang in_progress
+      description: Chỉ bên còn lại được duyệt. Có thể duyệt nguyên trạng hoặc gửi ảnh Cloudinary thay thế qua pickupImages và chỉnh condition, accessories hoặc notes. Chuỗi rỗng xóa phụ kiện hoặc ghi chú.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Đã duyệt giao nhận
+        '400':
+          description: Trạng thái đơn hoặc nội dung chỉnh sửa không hợp lệ
+        '403':
+          description: Người gọi không thuộc đơn hoặc là người lập biên bản
+        '409':
+          description: Biên bản không thể duyệt hoặc trạng thái đơn thuê vừa thay đổi
+
+  /rentals/{id}/approve-return:
+    patch:
+      tags: [Rentals]
+      summary: Duyệt biên bản trả đồ và chuyển sang completed
+      description: Chỉ bên còn lại được duyệt. Có thể duyệt nguyên trạng hoặc gửi ảnh Cloudinary thay thế qua returnImages và chỉnh condition, accessories, notes hoặc damages. Chuỗi rỗng xóa một trường văn bản.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Đã duyệt trả đồ
+        '400':
+          description: Trạng thái đơn hoặc nội dung chỉnh sửa không hợp lệ
+        '403':
+          description: Người gọi không thuộc đơn hoặc là người lập biên bản
+        '409':
+          description: Biên bản không thể duyệt hoặc trạng thái đơn thuê vừa thay đổi
+
   /rentals/{id}/messages:
     get:
       tags:

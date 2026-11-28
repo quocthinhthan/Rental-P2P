@@ -142,10 +142,11 @@ const IdentityProfileSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Enforce 1 CCCD = 1 active verified account at the database index level
+// Keep a CCCD bound to its account after revocation or a ban.
+// The descending key can coexist with the old ascending partial index.
 IdentityProfileSchema.index(
-  { idNumberHmac: 1 },
-  { unique: true, partialFilterExpression: { isActive: true } }
+  { idNumberHmac: -1 },
+  { unique: true, name: 'identity_profile_unique_cccd' }
 );
 
 module.exports = mongoose.model('IdentityProfile', IdentityProfileSchema);
