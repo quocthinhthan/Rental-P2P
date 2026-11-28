@@ -18,7 +18,8 @@ const { isValidCloudinaryImageUrl } = require('../utils/urlValidation');
 const { recalculateUserTrustScore } = require('../services/trustScore.service');
 const {
   authorizeChatRead,
-  authorizeChatWrite
+  authorizeChatWrite,
+  isRentalParticipant
 } = require('../services/chatAuthorization.service');
 const {
   isStartDateInPast,
@@ -632,28 +633,47 @@ exports.cancelRental = async (req, res) => {
   }
 };
 
+const HANDOVER_CONDITIONS = ['good', 'fair', 'damaged'];
+const HANDOVER_CONFLICT_MESSAGE = 'Biên bản đã được ghi nhận hoặc đơn thuê đã thay đổi trạng thái. Vui lòng tải lại.';
+
+const isValidHandoverImages = (images) => Array.isArray(images) && images.length > 0 &&
+  images.every((url) => isValidCloudinaryImageUrl(url));
+
+const recordHandoverReport = (rental, reportField, imagesField, report, images) => Rental.findOneAndUpdate(
+  { _id: rental._id, status: rental.status, [`${reportField}.recordedBy`]: null },
+  { $set: { [reportField]: report, [imagesField]: images.map((url) => url.trim()) } },
+  { new: true, runValidators: true }
+);
+
 // PATCH /api/rentals/:id/complete
 exports.completeRental = async (req, res) => {
-  const { returnImages, condition, accessories, notes, damages } = req.body;
+  const { returnImages, condition, accessories, notes, damages } = req.body || {};
 
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: MESSAGES.COMMON.INVALID_RENTAL_ID });
+    }
+
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ message: 'Rental not found' });
 
-    if (!rental.renterId.equals(req.user._id) && !rental.ownerId.equals(req.user._id)) {
-      return res.status(403).json({ message: 'Forbidden' });
+    if (!isRentalParticipant(rental, req.user._id)) {
+      return res.status(403).json({ message: MESSAGES.RENTAL.NOT_PARTICIPANT });
     }
 
     if (rental.status !== RentalStatus.IN_PROGRESS) {
       return res.status(400).json({ message: 'Đơn thuê chưa ở trạng thái đang thuê' });
     }
-    if (!returnImages || returnImages.length === 0) {
-      return res.status(400).json({ message: 'Bắt buộc phải tải ảnh lên lúc trả đồ!' });
+    if (rental.returnReport?.recordedBy) {
+      return res.status(409).json({ message: HANDOVER_CONFLICT_MESSAGE });
+    }
+    if (!isValidHandoverImages(returnImages)) {
+      return res.status(400).json({ message: 'Biên bản trả đồ cần ít nhất một ảnh Cloudinary hợp lệ.' });
     }
 
     // Build return report
     const returnReport = {
-      condition:   ['good', 'fair', 'damaged'].includes(condition) ? condition : 'good',
+      condition:   HANDOVER_CONDITIONS.includes(condition) ? condition : 'good',
       accessories: typeof accessories === 'string' ? accessories.trim() : '',
       notes:       typeof notes === 'string'       ? notes.trim()       : '',
       damages:     typeof damages === 'string'     ? damages.trim()     : '',
@@ -663,14 +683,8 @@ exports.completeRental = async (req, res) => {
       approvedAt:  null
     };
 
-    const savedRental = await Rental.findByIdAndUpdate(
-      rental._id,
-      {
-        returnImages,
-        returnReport
-      },
-      { new: true }
-    );
+    const savedRental = await recordHandoverReport(rental, 'returnReport', 'returnImages', returnReport, returnImages);
+    if (!savedRental) return res.status(409).json({ message: HANDOVER_CONFLICT_MESSAGE });
 
     res.status(200).json({ message: 'Đã ghi nhận biên bản trả đồ. Đang chờ đối phương xác nhận.', rental: savedRental });
   } catch (error) {
@@ -769,17 +783,28 @@ exports.getContractByRentalId = async (req, res) => {
 
 // PATCH /api/rentals/:id/pickup - Giao/Nhận đồ (Up ảnh lúc nhận)
 exports.pickupItem = async (req, res) => {
-  const { pickupImages, condition, accessories, notes } = req.body;
+  const { pickupImages, condition, accessories, notes } = req.body || {};
 
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: MESSAGES.COMMON.INVALID_RENTAL_ID });
+    }
+
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ message: 'Không tìm thấy đơn' });
+
+    if (!isRentalParticipant(rental, req.user._id)) {
+      return res.status(403).json({ message: MESSAGES.RENTAL.NOT_PARTICIPANT });
+    }
 
     if (rental.status !== RentalStatus.CONFIRMED) {
       return res.status(400).json({ message: 'Đơn thuê chưa được xác nhận' });
     }
-    if (!pickupImages || pickupImages.length === 0) {
-      return res.status(400).json({ message: 'Bắt buộc phải tải ảnh lên lúc bàn giao!' });
+    if (rental.pickupReport?.recordedBy) {
+      return res.status(409).json({ message: HANDOVER_CONFLICT_MESSAGE });
+    }
+    if (!isValidHandoverImages(pickupImages)) {
+      return res.status(400).json({ message: 'Biên bản bàn giao cần ít nhất một ảnh Cloudinary hợp lệ.' });
     }
 
     const contract = await Contract.findById(rental.contractId);
@@ -789,7 +814,7 @@ exports.pickupItem = async (req, res) => {
 
     // Build pickup report
     const pickupReport = {
-      condition:   ['good', 'fair', 'damaged'].includes(condition) ? condition : 'good',
+      condition:   HANDOVER_CONDITIONS.includes(condition) ? condition : 'good',
       accessories: typeof accessories === 'string' ? accessories.trim() : '',
       notes:       typeof notes === 'string'       ? notes.trim()       : '',
       recordedBy:  req.user._id,
@@ -798,11 +823,10 @@ exports.pickupItem = async (req, res) => {
       approvedAt:  null
     };
 
-    rental.pickupImages = pickupImages;
-    rental.pickupReport = pickupReport;
-    await rental.save();
+    const savedRental = await recordHandoverReport(rental, 'pickupReport', 'pickupImages', pickupReport, pickupImages);
+    if (!savedRental) return res.status(409).json({ message: HANDOVER_CONFLICT_MESSAGE });
 
-    res.status(200).json({ message: 'Đã ghi nhận biên bản giao đồ. Đang chờ đối phương xác nhận.', rental });
+    res.status(200).json({ message: 'Đã ghi nhận biên bản giao đồ. Đang chờ đối phương xác nhận.', rental: savedRental });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
@@ -1036,11 +1060,39 @@ exports.getRentalDetail = async (req, res) => {
   }
 };
 
+const applyHandoverEdits = (rental, report, imagesField, body, textFields) => {
+  const { condition, [imagesField]: images } = body;
+  if (images !== undefined && !isValidHandoverImages(images)) {
+    return 'Ảnh thay thế phải là danh sách ảnh Cloudinary hợp lệ và có ít nhất một ảnh.';
+  }
+  if (condition !== undefined && !HANDOVER_CONDITIONS.includes(condition)) {
+    return 'Tình trạng vật phẩm không hợp lệ.';
+  }
+  if (textFields.some((field) => body[field] !== undefined && typeof body[field] !== 'string')) {
+    return 'Phụ kiện, ghi chú và mô tả hư hỏng phải là văn bản.';
+  }
+
+  if (condition !== undefined) report.condition = condition;
+  for (const field of textFields) {
+    if (body[field] !== undefined) report[field] = body[field].trim();
+  }
+  if (images !== undefined) rental[imagesField] = images.map((url) => url.trim());
+  return null;
+};
+
 // PATCH /api/rentals/:id/approve-pickup - Xác nhận biên bản bàn giao
 exports.approvePickup = async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: MESSAGES.COMMON.INVALID_RENTAL_ID });
+    }
+
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ message: 'Không tìm thấy đơn' });
+
+    if (!isRentalParticipant(rental, req.user._id)) {
+      return res.status(403).json({ message: MESSAGES.RENTAL.NOT_PARTICIPANT });
+    }
 
     if (rental.status !== RentalStatus.CONFIRMED) {
       return res.status(400).json({ message: 'Đơn thuê chưa được xác nhận' });
@@ -1050,27 +1102,31 @@ exports.approvePickup = async (req, res) => {
       return res.status(400).json({ message: 'Biên bản bàn giao chưa được tạo' });
     }
 
+    if (!isRentalParticipant(rental, rental.pickupReport.recordedBy)) {
+      return res.status(409).json({ message: 'Biên bản bàn giao do người ngoài đơn thuê lập. Vui lòng báo cáo sự cố.' });
+    }
+
     if (rental.pickupReport.recordedBy.equals(req.user._id)) {
       return res.status(403).json({ message: 'Bạn không thể tự xác nhận biên bản do mình tạo!' });
     }
 
-    if (!rental.renterId.equals(req.user._id) && !rental.ownerId.equals(req.user._id)) {
-      return res.status(403).json({ message: 'Bạn không có quyền tham gia đơn thuê này' });
+    if (rental.pickupReport.approvedBy) {
+      return res.status(409).json({ message: HANDOVER_CONFLICT_MESSAGE });
     }
 
-    // Nhận thông tin chỉnh sửa (nếu có) từ đối phương khi duyệt
-    const { condition, accessories, notes, pickupImages } = req.body;
-    if (condition) rental.pickupReport.condition = condition;
-    if (accessories) rental.pickupReport.accessories = accessories;
-    if (notes) rental.pickupReport.notes = notes;
-    if (Array.isArray(pickupImages) && pickupImages.length > 0) {
-      rental.pickupImages = pickupImages;
-    }
+    const editError = applyHandoverEdits(
+      rental, rental.pickupReport, 'pickupImages', req.body || {}, ['accessories', 'notes']
+    );
+    if (editError) return res.status(400).json({ message: editError });
 
     rental.pickupReport.approvedBy = req.user._id;
     rental.pickupReport.approvedAt = new Date();
     rental.status = RentalStatus.IN_PROGRESS;
-    rental.$where = { status: RentalStatus.CONFIRMED };
+    rental.$where = {
+      status: RentalStatus.CONFIRMED,
+      'pickupReport.recordedBy': rental.pickupReport.recordedBy,
+      'pickupReport.approvedBy': null
+    };
     await rental.save();
     await syncItemRuntimeStatus(rental.itemId);
 
@@ -1092,8 +1148,16 @@ exports.approvePickup = async (req, res) => {
 // PATCH /api/rentals/:id/approve-return - Xác nhận biên bản trả đồ
 exports.approveReturn = async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: MESSAGES.COMMON.INVALID_RENTAL_ID });
+    }
+
     const rental = await Rental.findById(req.params.id);
     if (!rental) return res.status(404).json({ message: 'Không tìm thấy đơn' });
+
+    if (!isRentalParticipant(rental, req.user._id)) {
+      return res.status(403).json({ message: MESSAGES.RENTAL.NOT_PARTICIPANT });
+    }
 
     if (rental.status !== RentalStatus.IN_PROGRESS) {
       return res.status(400).json({ message: 'Đơn thuê chưa ở trạng thái đang thuê' });
@@ -1103,29 +1167,32 @@ exports.approveReturn = async (req, res) => {
       return res.status(400).json({ message: 'Biên bản trả đồ chưa được tạo' });
     }
 
+    if (!isRentalParticipant(rental, rental.returnReport.recordedBy)) {
+      return res.status(409).json({ message: 'Biên bản trả đồ do người ngoài đơn thuê lập. Vui lòng báo cáo sự cố.' });
+    }
+
     if (rental.returnReport.recordedBy.equals(req.user._id)) {
       return res.status(403).json({ message: 'Bạn không thể tự xác nhận biên bản do mình tạo!' });
     }
 
-    if (!rental.renterId.equals(req.user._id) && !rental.ownerId.equals(req.user._id)) {
-      return res.status(403).json({ message: 'Bạn không có quyền tham gia đơn thuê này' });
+    if (rental.returnReport.approvedBy) {
+      return res.status(409).json({ message: HANDOVER_CONFLICT_MESSAGE });
     }
 
-    // Nhận thông tin chỉnh sửa (nếu có) từ đối phương khi duyệt
-    const { condition, accessories, notes, damages, returnImages } = req.body;
-    if (condition) rental.returnReport.condition = condition;
-    if (accessories) rental.returnReport.accessories = accessories;
-    if (notes) rental.returnReport.notes = notes;
-    if (damages) rental.returnReport.damages = damages;
-    if (Array.isArray(returnImages) && returnImages.length > 0) {
-      rental.returnImages = returnImages;
-    }
+    const editError = applyHandoverEdits(
+      rental, rental.returnReport, 'returnImages', req.body || {}, ['accessories', 'notes', 'damages']
+    );
+    if (editError) return res.status(400).json({ message: editError });
 
     rental.returnReport.approvedBy = req.user._id;
     rental.returnReport.approvedAt = new Date();
     rental.status = RentalStatus.COMPLETED;
     rental.completedAt ||= rental.returnReport.approvedAt;
-    rental.$where = { status: RentalStatus.IN_PROGRESS };
+    rental.$where = {
+      status: RentalStatus.IN_PROGRESS,
+      'returnReport.recordedBy': rental.returnReport.recordedBy,
+      'returnReport.approvedBy': null
+    };
     await rental.save();
 
     await syncItemRuntimeStatus(rental.itemId);

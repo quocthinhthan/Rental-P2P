@@ -203,13 +203,14 @@ Only penalize when an admin resolves a dispute and the user is explicitly penali
 | `none` | 0 |
 | `warning` | -15 |
 | `suspension` | -30 |
-| `ban` | Final score becomes 0 |
+| `ban` | Sets `User.isBanned`. An active account ban forces a final score of 0. |
 
 Important:
 
 - Merely filing a dispute does not reduce trust.
 - Being involved in a dispute does not reduce trust.
 - Penalty applies based on resolved admin decision and `penalizeUserId`.
+- Unban restores the score calculated from the remaining factors. Historical ban decisions stay in the dispute and audit records.
 
 #### F. Item report penalties
 
@@ -432,7 +433,6 @@ The `0–100` TrustScore model is **IMPLEMENTED** in the backend:
 
 ### 8.2. Remaining verified gaps (pending Founder decision or fix)
 
-- **Unban after historical dispute ban penalty:** In `trustScore.service.js`, `calculateUserTrustScore` checks `if (user.isBanned || disputePenalty.hasBanPenalty)` and forces `trustScore = 0`. If an admin later unbans a user who previously received a `Dispute` with `penaltyType = 'ban'`, the historical dispute still pins `trustScore` to `0`.
 - **Lazy review auto-publish:** Hidden double-blind reviews older than 7 days are published and recalculated lazily inside `getUserReviews` and `getItemReviews`, not via a background cron job.
 
 ---

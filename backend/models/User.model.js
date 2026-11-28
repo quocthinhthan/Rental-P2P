@@ -36,6 +36,7 @@ const UserSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // Display value for current eKYC. IdentityProfile.idNumberHmac enforces uniqueness.
   idCardNumber: { type: String, default: '' },
   idCardImages: [{ type: String }],
   resetPasswordToken: String,
