@@ -301,10 +301,59 @@ const checkOwner = async (req, res, next) => {
   }
 };
 
+const ACTIVE_ITEM_RENTAL_STATUSES = ['pending_confirmation', 'confirmed', 'in_progress', 'disputed'];
+
 // PUT /api/items/:id
 const updateItem = async (req, res) => {
   const { name, description, category, pricePerDay, address, images, status, baseValue, depositPercentage, lat, lng } = req.body;
-  const item = req.item; 
+  const item = req.item;
+
+  if (item.delistedByAdmin) {
+    return res.status(403).json({
+      message: 'Sản phẩm đã bị quản trị viên gỡ/ẩn, bạn không thể chỉnh sửa hoặc mở lại. Vui lòng liên hệ hỗ trợ.'
+    });
+  }
+
+  let nextLocation = null;
+  if (lat !== undefined && lng !== undefined) {
+    const coords = validateCoordinates(lat, lng);
+    if (!coords) return res.status(400).json({ message: 'Tọa độ không hợp lệ' });
+
+    nextLocation = {
+      type: 'Point',
+      coordinates: [coords.parseLng, coords.parseLat]
+    };
+  }
+
+  try {
+    if (status === 'delisted' && item.status !== 'delisted') {
+      const activeRental = await Rental.findOne({
+        itemId: item._id,
+        status: { $in: ACTIVE_ITEM_RENTAL_STATUSES }
+      }).select('_id code status');
+      if (activeRental) {
+        return res.status(400).json({
+          message: 'Không thể ẩn sản phẩm khi đang có đơn thuê hoặc tranh chấp đang hoạt động.',
+          activeRental
+        });
+      }
+    }
+
+    if (status === 'available' && item.status === 'rented') {
+      const activeRental = await Rental.findOne({
+        itemId: item._id,
+        status: { $in: ACTIVE_ITEM_RENTAL_STATUSES }
+      }).select('_id code status');
+      if (activeRental) {
+        return res.status(400).json({
+          message: 'Không thể đổi trạng thái sang sẵn sàng khi sản phẩm đang có đơn thuê hoạt động.',
+          activeRental
+        });
+      }
+    }
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error' });
+  }
 
   item.name = name ?? item.name;
   item.description = description ?? item.description;
@@ -314,19 +363,13 @@ const updateItem = async (req, res) => {
   item.depositPercentage = depositPercentage ?? item.depositPercentage;
   item.address = address ?? item.address;
   item.images = images ?? item.images;
-  
+
   if (status && ['available', 'delisted'].includes(status)) {
-     item.status = status;
+    item.status = status;
   }
 
-  if (lat !== undefined && lng !== undefined) {
-    const coords = validateCoordinates(lat, lng);
-    if (!coords) return res.status(400).json({ message: 'Tọa độ không hợp lệ' });
-
-    item.location = {
-      type: 'Point',
-      coordinates: [coords.parseLng, coords.parseLat]
-    };
+  if (nextLocation) {
+    item.location = nextLocation;
   }
 
   try {
@@ -341,8 +384,27 @@ const updateItem = async (req, res) => {
 const deleteItem = async (req, res) => {
   try {
     if (req.item.status === 'rented') {
-        return res.status(400).json({ message: 'Cannot delete item while it is being rented.' });
+      return res.status(400).json({ message: 'Cannot delete item while it is being rented.' });
     }
+
+    const activeRental = await Rental.findOne({
+      itemId: req.item._id,
+      status: { $in: ACTIVE_ITEM_RENTAL_STATUSES }
+    }).select('_id code status');
+    if (activeRental) {
+      return res.status(400).json({
+        message: 'Không thể xóa sản phẩm đang có đơn thuê hoặc tranh chấp hoạt động.',
+        activeRental
+      });
+    }
+
+    const anyRental = await Rental.exists({ itemId: req.item._id });
+    if (anyRental) {
+      return res.status(400).json({
+        message: 'Sản phẩm đã phát sinh lịch sử thuê nên không thể xóa vĩnh viễn. Vui lòng chuyển sang trạng thái tạm ẩn (delisted).'
+      });
+    }
+
     await Item.findByIdAndDelete(req.params.id);
     res.status(204).send();
   } catch (error) {

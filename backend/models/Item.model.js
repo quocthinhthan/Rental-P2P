@@ -28,6 +28,8 @@ const ItemSchema = new mongoose.Schema({
     default: ItemStatus.AVAILABLE
   },
   isFeatured: { type: Boolean, default: false },
+  delistedByAdmin: { type: Boolean, default: false },
+  adminDelistReason: { type: String, default: '' },
 
   /**
    * Owner-controlled date blocks — prevents new rentals for specified periods
